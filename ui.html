@@ -184,14 +184,14 @@
 
 <script>
   const widthTextbox = document.getElementById("widthCount");
-  let widthCount = Number(widthTextbox.value);
+  let widthCount = Number(widthTextbox.value ?? 0);
 
   const heightTextbox = document.getElementById("heightCount");
-  let heightCount = Number(heightTextbox.value);
+  let heightCount = Number(heightTextbox.value ?? 0);
 
   function setValues() {
-    widthCount = Number(widthTextbox.value);
-    heightCount = Number(heightTextbox.value);
+    widthCount = Number(widthTextbox.value ?? 0);
+    heightCount = Number(heightTextbox.value ?? 0);
   }
 
   function resetValues() {
