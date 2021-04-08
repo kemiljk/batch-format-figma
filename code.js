@@ -7,7 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-figma.showUI(__html__, { width: 300, height: 300 });
+figma.showUI(__html__, { width: 300, height: 320 });
 const nodeTypes = ["RECTANGLE", "ELLIPSE", "POLYGON", "STAR"];
 const { selection } = figma.currentPage;
 function clone(val) {

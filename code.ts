@@ -1,4 +1,4 @@
-figma.showUI(__html__, { width: 300, height: 300 });
+figma.showUI(__html__, { width: 300, height: 320 });
 const nodeTypes = ["RECTANGLE", "ELLIPSE", "POLYGON", "STAR"];
 
 const { selection } = figma.currentPage;

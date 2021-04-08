@@ -45,8 +45,6 @@
     justify-content: space-between;
     width: 100%;
     padding-top: 0.25rem;
-    margin-left: auto;
-    margin-right: auto;
   }
   p {
     font-size: smaller;
@@ -62,10 +60,16 @@
     font-weight: 500;
     box-shadow: none;
     outline: none;
-    border: 1px solid darkgrey;
+    border: 2px solid darkgrey;
   }
   input:first-of-type {
     margin-right: 0.25rem;
+  }
+  input:active {
+    border: 2px solid #17a0fb;
+  }
+  input:focus {
+    border: 2px solid #17a0fb;
   }
   .primary {
     margin-right: 0.25rem;
@@ -94,16 +98,16 @@
     background: none;
     color: #17a0fb;
     width: 40px;
-    height: 40px;
-    margin-right: 20px;
     font-weight: 600;
-    box-shadow: none;
-    outline: none;
+    font-size: small;
   }
   .primary:last-of-type {
     margin-right: 0;
   }
   .primary:active {
+    background-color: #0985d8;
+  }
+  .primary:focus {
     background-color: #0985d8;
   }
   .secondary:active {
@@ -119,10 +123,31 @@
     transition: all 0.1s ease-in-out;
     cursor: pointer;
   }
+  .secondary:focus {
+    background-color: lightgray;
+  }
+  .textStyle:active {
+    color: #0985d8;
+  }
   .textStyle:hover {
     color: #0985d8;
     transition: all 0.1s ease-in-out;
     cursor: pointer;
+  }
+  .textStyle:focus {
+    color: #0985d8;
+    border-bottom: 1px solid #0985d8;
+  }
+  .xs {
+    font-size: x-small;
+    margin-top: 5px;
+    color: darkslategray;
+  }
+  .sm {
+    font-size: small;
+    padding-bottom: 0;
+    margin-bottom: 10px;
+    color: darkslategray;
   }
 </style>
 
@@ -134,8 +159,8 @@
   <button id="set-to-tile" class="primary">TILE</button>
 </div>
 <div>
-  <p>Set resize values</p>
-  <button class="textStyle" onclick="resetValues()">Reset</button>
+  <p class="sm">Define resize values</p>
+  <span class="textStyle" onclick="resetValues()">Reset</span>
 </div>
 <div>
   <input
@@ -153,6 +178,7 @@
     onchange="setValues()"
   />
 </div>
+<p class="xs">(leave empty to keep things the same)</p>
 <p>Remove default grey fill layer</p>
 <button class="secondary" id="remove-fill-layer">Remove</button>
 
