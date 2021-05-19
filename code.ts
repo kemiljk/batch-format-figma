@@ -1,4 +1,4 @@
-figma.showUI(__html__, { width: 300, height: 320 });
+figma.showUI(__html__, { width: 300, height: 300 });
 const nodeTypes = ["RECTANGLE", "ELLIPSE", "POLYGON", "STAR"];
 
 const { selection } = figma.currentPage;
@@ -17,13 +17,26 @@ figma.ui.onmessage = (msg) => {
             node.fills = node.fills.map((p) =>
               p.type === "IMAGE" ? { ...p, scaleMode: "FILL" } : p
             );
-            node.resize(msg.widthCount, msg.heightCount);
+            let widthResult = msg.widthCount / node.width;
+            let heightResult = msg.heightCount / node.height;
+            if (msg.heightCount === 0) {
+              node.rescale(widthResult);
+              node.resize(Math.round(node.width), Math.round(node.height));
+            } else if (msg.widthCount === 0) {
+              node.rescale(heightResult);
+              node.resize(Math.round(node.width), Math.round(node.height));
+            } else {
+              node.resize(msg.widthCount, msg.heightCount);
+            }
           }
         })
       );
     }
     setToFill();
     figma.notify(`Set ${images.length} images to FILL`);
+    if (msg.checkboxOn === true) {
+      figma.closePlugin();
+    }
   }
   if (msg.type === "set-to-fit") {
     const images = figma.currentPage.selection;
@@ -34,13 +47,26 @@ figma.ui.onmessage = (msg) => {
             node.fills = node.fills.map((p) =>
               p.type === "IMAGE" ? { ...p, scaleMode: "FIT" } : p
             );
-            node.resize(msg.widthCount, msg.heightCount);
+            let widthResult = msg.widthCount / node.width;
+            let heightResult = msg.heightCount / node.height;
+            if (msg.heightCount === 0) {
+              node.rescale(widthResult);
+              node.resize(Math.round(node.width), Math.round(node.height));
+            } else if (msg.widthCount === 0) {
+              node.rescale(heightResult);
+              node.resize(Math.round(node.width), Math.round(node.height));
+            } else {
+              node.resize(msg.widthCount, msg.heightCount);
+            }
           }
         })
       );
     }
     setToFit();
     figma.notify(`Set ${images.length} images to FIT`);
+    if (msg.checkboxOn === true) {
+      figma.closePlugin();
+    }
   }
   if (msg.type === "set-to-crop") {
     const images = figma.currentPage.selection;
@@ -51,13 +77,26 @@ figma.ui.onmessage = (msg) => {
             node.fills = node.fills.map((p) =>
               p.type === "IMAGE" ? { ...p, scaleMode: "CROP" } : p
             );
-            node.resize(msg.widthCount, msg.heightCount);
+            let widthResult = msg.widthCount / node.width;
+            let heightResult = msg.heightCount / node.height;
+            if (msg.heightCount === 0) {
+              node.rescale(widthResult);
+              node.resize(Math.round(node.width), Math.round(node.height));
+            } else if (msg.widthCount === 0) {
+              node.rescale(heightResult);
+              node.resize(Math.round(node.width), Math.round(node.height));
+            } else {
+              node.resize(msg.widthCount, msg.heightCount);
+            }
           }
         })
       );
     }
     setToCrop();
     figma.notify(`Set ${images.length} images to CROP`);
+    if (msg.checkboxOn === true) {
+      figma.closePlugin();
+    }
   }
   if (msg.type === "set-to-tile") {
     const images = figma.currentPage.selection;
@@ -68,13 +107,26 @@ figma.ui.onmessage = (msg) => {
             node.fills = node.fills.map((p) =>
               p.type === "IMAGE" ? { ...p, scaleMode: "TILE" } : p
             );
-            node.resize(msg.widthCount, msg.heightCount);
+            let widthResult = msg.widthCount / node.width;
+            let heightResult = msg.heightCount / node.height;
+            if (msg.heightCount === 0) {
+              node.rescale(widthResult);
+              node.resize(Math.round(node.width), Math.round(node.height));
+            } else if (msg.widthCount === 0) {
+              node.rescale(heightResult);
+              node.resize(Math.round(node.width), Math.round(node.height));
+            } else {
+              node.resize(msg.widthCount, msg.heightCount);
+            }
           }
         })
       );
     }
     setToTile();
     figma.notify(`Set ${images.length} images to TILE`);
+    if (msg.checkboxOn === true) {
+      figma.closePlugin();
+    }
   }
 
   if (msg.type === "remove-fill-layer") {
@@ -92,5 +144,8 @@ figma.ui.onmessage = (msg) => {
       );
     }
     removeFillLayer();
+    if (msg.checkboxOn === true) {
+      figma.closePlugin();
+    }
   }
 };

@@ -149,9 +149,79 @@
     margin-bottom: 10px;
     color: darkslategray;
   }
+  .justify-end {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .mb-0 {
+    margin-bottom: 0;
+  }
+
+  /* The switch - the box around the slider */
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 24px;
+  }
+
+  /* Hide default HTML checkbox */
+  .switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  /* The slider */
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #d5d6d7;
+    -webkit-transition: 0.4s;
+    transition: 0.4s;
+  }
+
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    -webkit-transition: 0.4s;
+    transition: 0.4s;
+  }
+
+  input:checked + .slider {
+    background-color: #17a0fb;
+  }
+
+  input:focus + .slider {
+    box-shadow: 0 0 1px #0985d8;
+  }
+
+  input:checked + .slider:before {
+    -webkit-transform: translateX(16px);
+    -ms-transform: translateX(16px);
+    transform: translateX(16px);
+  }
+
+  /* Rounded sliders */
+  .slider.round {
+    border-radius: 34px;
+  }
+
+  .slider.round:before {
+    border-radius: 50%;
+  }
 </style>
 
-<p>Quickly swap one or many shapes to a different fill type</p>
 <div>
   <button id="set-to-fill" class="primary">FILL</button>
   <button id="set-to-fit" class="primary">FIT</button>
@@ -181,8 +251,23 @@
 <p class="xs">(leave empty to keep things the same)</p>
 <p>Remove default grey fill layer</p>
 <button class="secondary" id="remove-fill-layer">Remove</button>
+<div class="justify-end mb-0">
+  <p>Close plugin on completion</p>
+  <label class="switch">
+    <input type="checkbox" id="checkbox" />
+    <span class="slider round"></span>
+  </label>
+</div>
 
 <script>
+  const checkbox = document.getElementById("checkbox");
+  let checkboxOn = checkbox.hasAttribute("checked");
+  checkbox.onclick = () => {
+    checkbox.toggleAttribute("checked");
+    checkboxOn = checkbox.hasAttribute("checked");
+    console.log(checkboxOn);
+  };
+
   const widthTextbox = document.getElementById("widthCount");
   let widthCount = Number(widthTextbox.value ?? 0);
 
@@ -203,29 +288,60 @@
 
   document.getElementById("set-to-fill").onclick = () => {
     parent.postMessage(
-      { pluginMessage: { type: "set-to-fill", widthCount, heightCount } },
+      {
+        pluginMessage: {
+          type: "set-to-fill",
+          widthCount,
+          heightCount,
+          checkboxOn,
+        },
+      },
       "*"
     );
   };
   document.getElementById("set-to-fit").onclick = () => {
     parent.postMessage(
-      { pluginMessage: { type: "set-to-fit", widthCount, heightCount } },
+      {
+        pluginMessage: {
+          type: "set-to-fit",
+          widthCount,
+          heightCount,
+          checkboxOn,
+        },
+      },
       "*"
     );
   };
   document.getElementById("set-to-crop").onclick = () => {
     parent.postMessage(
-      { pluginMessage: { type: "set-to-crop", widthCount, heightCount } },
+      {
+        pluginMessage: {
+          type: "set-to-crop",
+          widthCount,
+          heightCount,
+          checkboxOn,
+        },
+      },
       "*"
     );
   };
   document.getElementById("set-to-tile").onclick = () => {
     parent.postMessage(
-      { pluginMessage: { type: "set-to-tile", widthCount, heightCount } },
+      {
+        pluginMessage: {
+          type: "set-to-tile",
+          widthCount,
+          heightCount,
+          checkboxOn,
+        },
+      },
       "*"
     );
   };
   document.getElementById("remove-fill-layer").onclick = () => {
-    parent.postMessage({ pluginMessage: { type: "remove-fill-layer" } }, "*");
+    parent.postMessage(
+      { pluginMessage: { type: "remove-fill-layer", checkboxOn } },
+      "*"
+    );
   };
 </script>
