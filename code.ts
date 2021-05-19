@@ -8,6 +8,51 @@ function clone(val) {
 }
 
 figma.ui.onmessage = (msg) => {
+  // const messages = {
+  //   type: ["set-to-fill", "set-to-fit", "set-to-crop", "set-to-tile"],
+  //   scaleMode: ["FILL", "FIT", "CROP", "TILE"],
+  // };
+
+  // messages.type.forEach((index) => {
+  //   const images = figma.currentPage.selection;
+  //   console.log(messages.type + index);
+  //   if (messages.type.includes(msg.type)) {
+  //     for (msg.type in messages)
+  //       figma.root.children.flatMap((pageNode) =>
+  //         pageNode.selection.forEach(async (node) => {
+  //           if (nodeTypes.includes(node.type)) {
+  //             node.fills = node.fills.map((p) =>
+  //               p.type === "IMAGE"
+  //                 ? { ...p, scaleMode: messages.scaleMode[index] }
+  //                 : p
+  //             );
+  //             node.resize(msg.widthCount, msg.heightCount);
+  //           }
+  //         })
+  //       );
+  //   }
+  //   figma.notify(`Set ${images.length} images to ${messages.scaleMode}`);
+  // });
+
+  if (msg.type === "remove-fill-layer") {
+    async function removeFillLayer() {
+      figma.root.children.flatMap((pageNode) =>
+        pageNode.selection.forEach(async (node) => {
+          const fills = clone(node.fills);
+          if (fills.length >= 2) {
+            if (node.type !== "IMAGE") {
+              fills.splice(0, 1);
+              node.fills = fills;
+            }
+          }
+        })
+      );
+    }
+    removeFillLayer();
+  }
+};
+
+figma.ui.onmessage = (msg) => {
   if (msg.type === "set-to-fill") {
     const images = figma.currentPage.selection;
     async function setToFill() {

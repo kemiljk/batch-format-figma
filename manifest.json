@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "name": "Batch››format",
+=======
+  "name": "Batch››image-format",
+>>>>>>> 681f700d7ff9ec8fca3e35e6f363c6e81c6cb2fe
   "id": "961254533460516019",
   "api": "1.0.0",
   "main": "code.js",
