@@ -71,6 +71,25 @@
   input:focus {
     border: 2px solid #17a0fb;
   }
+  select {
+    width: 100%;
+    height: 40px;
+    border-radius: 8px;
+    padding: 8px;
+    background-color: white;
+    color: rgb(87, 87, 87);
+    font-weight: 500;
+    box-shadow: none;
+    outline: none;
+    border: 2px solid darkgrey;
+    margin-right: 0.5rem;
+  }
+  select:active {
+    border: 2px solid #17a0fb;
+  }
+  select:focus {
+    border: 2px solid #17a0fb;
+  }
   .primary {
     margin-right: 0.25rem;
     background-color: #17a0fb;
@@ -84,7 +103,6 @@
     transition: all 0.1s ease-in-out;
   }
   .secondary {
-    margin-right: 0.25rem;
     background-color: rgb(238, 237, 237);
     color: rgb(87, 87, 87);
     height: 40px;
@@ -157,6 +175,12 @@
   .mb-0 {
     margin-bottom: 0;
   }
+  .mb-2 {
+    margin-bottom: 0.5rem;
+  }
+  .mr-1 {
+    margin-right: 0.25rem;
+  }
 
   /* The switch - the box around the slider */
   .switch {
@@ -222,6 +246,9 @@
   }
 </style>
 
+<div id="blendModeContainer" class="mb-2">
+  <select title="Select blend mode" id="setBlendMode"></select>
+</div>
 <div>
   <button id="set-to-fill" class="primary">FILL</button>
   <button id="set-to-fit" class="primary">FIT</button>
@@ -260,6 +287,63 @@
 </div>
 
 <script>
+  const blendModeType = [
+    "NORMAL",
+    "DARKEN",
+    "MULTIPLY",
+    "LINEAR_BURN",
+    "COLOR_BURN",
+    "LIGHTEN",
+    "SCREEN",
+    "LINEAR_DODGE",
+    "COLOR_DODGE",
+    "OVERLAY",
+    "SOFT_LIGHT",
+    "HARD_LIGHT",
+    "DIFFERENCE",
+    "EXCLUSION",
+    "HUE",
+    "SATURATION",
+    "COLOR",
+    "LUMINOSITY",
+  ];
+  const blendModeLabel = [
+    "Normal",
+    "Darken",
+    "Multiple",
+    "Linear Burn",
+    "Color Burn",
+    "Lighten",
+    "Screen",
+    "Linear Dodge",
+    "Color Dodge",
+    "Overlay",
+    "Soft Light",
+    "Hard Light",
+    "Difference",
+    "Exclusion",
+    "Hue",
+    "Saturation",
+    "Color",
+    "Luminosity",
+  ];
+
+  const blendModeSelect = document.getElementById("setBlendMode");
+  for (let i = 0; i < blendModeType.length; i++) {
+    const option = document.createElement("OPTION");
+    option.value = blendModeType[i];
+    option.textContent = blendModeLabel[i];
+    option.id += "blendMode" + "-" + [i];
+    blendModeSelect.append(option);
+  }
+
+  const blendModeContainer = document.querySelector("#blendModeContainer");
+  const button = document.createElement("BUTTON");
+  button.textContent = "Set";
+  button.classList.add("secondary");
+  button.id = "set-blend-mode";
+  blendModeContainer.append(button);
+
   const checkbox = document.getElementById("checkbox");
   let checkboxOn = checkbox.hasAttribute("checked");
   checkbox.onclick = () => {
@@ -285,6 +369,20 @@
     heightCount = "";
     heightTextbox.value = "";
   }
+
+  document.getElementById("set-blend-mode").onclick = () => {
+    console.log(blendModeSelect.options[blendModeSelect.selectedIndex].value);
+    blendMode = blendModeSelect.options[blendModeSelect.selectedIndex].value;
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "set-blend-mode",
+          blendMode,
+        },
+      },
+      "*"
+    );
+  };
 
   document.getElementById("set-to-fill").onclick = () => {
     parent.postMessage(
