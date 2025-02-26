@@ -1,6 +1,16 @@
 {
   "compilerOptions": {
     "target": "es2016",
-    "typeRoots": ["./node_modules/@types", "./node_modules/@figma"]
-  }
+    "module": "es2015",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": true,
+    "jsx": "react",
+    "outDir": "dist",
+    "typeRoots": ["./node_modules/@types", "./node_modules/@figma"],
+    "lib": ["es2016", "dom"],
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules"]
 }

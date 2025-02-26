@@ -1,4 +1,4 @@
-figma.showUI(__html__, { width: 300, height: 348 });
+figma.showUI(__html__, { themeColors: true, width: 300, height: 348 });
 const nodeTypes = ["RECTANGLE", "ELLIPSE", "POLYGON", "STAR"];
 
 const { selection } = figma.currentPage;

@@ -1,0 +1,7 @@
+[install]
+# Use exact versions for dependencies
+exact = true
+
+[install.cache]
+# Enable the global cache for faster installations
+global = true 

@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles that extend Tailwind */
+@layer components {
+  /* Switch component */
+  .switch {
+    @apply relative inline-block w-10 h-6;
+  }
+
+  .switch input {
+    @apply opacity-0 w-0 h-0;
+  }
+
+  .slider {
+    @apply absolute cursor-pointer inset-0 bg-figma-bg-secondary transition-all duration-300 rounded-full;
+  }
+
+  .slider:before {
+    @apply absolute content-[''] h-4 w-4 left-1 bottom-1 bg-figma-text-tertiary transition-all duration-300 rounded-full;
+  }
+
+  input:checked + .slider {
+    @apply bg-figma-bg-brand;
+  }
+
+  input:focus + .slider {
+    @apply shadow-[0_0_0_2px_var(--figma-color-bg-brand)];
+  }
+
+  input:checked + .slider:before {
+    @apply transform translate-x-4 bg-white;
+  }
+
+  /* Figma-style scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-figma-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-figma-border-selected;
+  }
+
+  /* Ensure proper button hover states */
+  button:hover {
+    cursor: pointer;
+  }
+
+  /* Radix UI Select styles */
+  [data-radix-popper-content-wrapper] {
+    max-height: 300px !important;
+    z-index: 9999 !important;
+  }
+}
+
+/* Ensure the plugin UI has proper height */
+body {
+  @apply overflow-y-auto;
+  max-height: 520px;
+}
+
+html,
+body {
+  @apply overscroll-none;
+}

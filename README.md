@@ -1,40 +1,118 @@
-Below are the steps to get your plugin running. You can also find instructions at:
+# Batch Format Plugin for Figma
 
-  https://www.figma.com/plugin-docs/setup/
+A Figma plugin for batch formatting images and videos in your designs.
 
-This plugin template uses Typescript and NPM, two standard tools in creating JavaScript applications.
+## Features
 
-First, download Node.js which comes with NPM. This will allow you to install TypeScript and other
-libraries. You can find the download link here:
+- Set image scale modes (FILL, FIT, CROP, TILE)
+- Resize images with custom dimensions
+- Remove default fill layers
+- Set blend modes for images
+- Support for videos
+- Preset dimensions for quick formatting
 
-  https://nodejs.org/en/download/
+## Development
 
-Next, install TypeScript using the command:
+### Prerequisites
 
-  npm install -g typescript
+- [Bun](https://bun.sh/) (recommended for package management)
+- Node.js (v16 or higher)
 
-Finally, in the directory of your plugin, get the latest type definitions for the plugin API by running:
+### Setup
 
-  npm install --save-dev @figma/plugin-typings
+1. Clone this repository
+2. Install Bun if you haven't already (optional but recommended):
 
-If you are familiar with JavaScript, TypeScript will look very familiar. In fact, valid JavaScript code
-is already valid Typescript code.
+```bash
+# Install Bun globally
+curl -fsSL https://bun.sh/install | bash
+```
 
-TypeScript adds type annotations to variables. This allows code editors such as Visual Studio Code
-to provide information about the Figma API while you are writing code, as well as help catch bugs
-you previously didn't notice.
+3. Install dependencies:
 
-For more information, visit https://www.typescriptlang.org/
+```bash
+# Using Bun (recommended for faster installation)
+bun install
 
-Using TypeScript requires a compiler to convert TypeScript (code.ts) into JavaScript (code.js)
-for the browser to run.
+# Or using npm
+npm install
+```
 
-We recommend writing TypeScript code using Visual Studio code:
+### Development Workflow
 
-1. Download Visual Studio Code if you haven't already: https://code.visualstudio.com/.
-2. Open this directory in Visual Studio Code.
-3. Compile TypeScript to JavaScript: Run the "Terminal > Run Build Task..." menu item,
-    then select "tsc: watch - tsconfig.json". You will have to do this again every time
-    you reopen Visual Studio Code.
+There are two ways to develop the plugin:
 
-That's it! Visual Studio Code will regenerate the JavaScript file every time you save.
+#### Option 1: Using webpack-dev-server (Recommended)
+
+This option provides the best development experience with hot reloading:
+
+```bash
+# Start the development server
+bun run dev
+```
+
+This will:
+
+- Start a development server at http://localhost:9000
+- Enable hot module replacement for faster development
+- Write files to disk so Figma can access them
+- Automatically rebuild when files change
+
+#### Option 2: Using watch mode
+
+If you prefer a simpler approach without the dev server:
+
+```bash
+# Start webpack in watch mode
+bun run watch
+```
+
+This will:
+
+- Watch for file changes and rebuild automatically
+- Write files to disk in the dist folder
+
+### Loading the Plugin in Figma
+
+1. Open Figma Desktop
+2. Go to Plugins > Development > Import plugin from manifest
+3. Select the `manifest.json` file from your project directory
+4. The plugin will now be available in the Plugins menu under Development
+
+When you make changes to your code:
+
+- If using the dev server, changes will be automatically applied
+- If using watch mode, you'll need to right-click the plugin in Figma and select "Reload Plugin"
+
+### Building
+
+To build the plugin for production:
+
+```bash
+# Using Bun
+bun run build
+
+# Or using npm
+npm run build
+```
+
+## Usage
+
+1. Select one or more nodes containing images or videos
+2. Open the plugin
+3. Choose the desired formatting options
+4. Click the corresponding action button
+
+## Development Stack
+
+This plugin uses:
+
+- **TypeScript** for type-safe code
+- **React** for the UI components
+- **Tailwind CSS** for styling with Figma variables
+- **Webpack** for bundling
+- **Bun** as a fast package manager
+
+## License
+
+MIT
