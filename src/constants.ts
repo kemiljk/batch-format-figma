@@ -10,6 +10,7 @@ export const SUPPORTED_NODE_TYPES: SupportedNodeType[] = [
   'COMPONENT',
   'INSTANCE',
   'GROUP',
+  'VECTOR',
 ];
 
 // Blend mode options for UI

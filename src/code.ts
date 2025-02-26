@@ -78,7 +78,19 @@ function hasImageFills(node: SceneNode): boolean {
         fills.map((f) => f.type).join(', ')
       );
 
-      return fills.some((fill) => fill.type === 'IMAGE' || fill.type === 'VIDEO');
+      // Check each fill to see if it's an image or video
+      for (const fill of fills) {
+        if (fill.type === 'IMAGE' || fill.type === 'VIDEO') {
+          console.log(`Found image/video fill in node ${node.name}`);
+          return true;
+        }
+
+        // For vector nodes, check if there's a visible fill that might be an image
+        if (fill.visible !== false && fill.opacity !== 0) {
+          console.log(`Found visible fill in node ${node.name}, treating as valid`);
+          return true;
+        }
+      }
     }
   }
   return false;
@@ -92,53 +104,144 @@ async function processNode(
   scaleMode: ScaleModeType | null = null,
   widthCount: number = 0,
   heightCount: number = 0,
-  blendMode: BlendMode | null = null
+  blendMode: BlendMode | null = null,
+  shouldRemoveFillLayer: boolean = false
 ): Promise<void> {
-  // Check if node is a supported type and has fills property
-  if (!SUPPORTED_NODE_TYPES.includes(node.type as SupportedNodeType) || !('fills' in node)) {
+  console.log(`Processing node: ${node.name} (${node.type})`);
+
+  // Check if node is a supported type
+  if (!SUPPORTED_NODE_TYPES.includes(node.type as SupportedNodeType)) {
+    console.log(`Node ${node.name} is not a supported type: ${node.type}`);
     return;
   }
 
-  // Cast node to a type with fills
-  const nodeWithFills = node as
-    | RectangleNode
-    | EllipseNode
-    | PolygonNode
-    | StarNode
-    | FrameNode
-    | ComponentNode
-    | InstanceNode;
+  // Handle fills if the node has them
+  if ('fills' in node) {
+    // Cast node to a type with fills
+    const nodeWithFills = node as GeometryMixin;
 
-  // Apply scale mode if provided
-  if (scaleMode) {
-    nodeWithFills.fills = (nodeWithFills.fills as Paint[]).map((p) => {
-      if (p.type === 'IMAGE' || p.type === 'VIDEO') {
-        return { ...p, scaleMode };
+    // Create a copy of the fills to modify
+    const fills = clone(nodeWithFills.fills) as Paint[];
+    const modifiedFills: Paint[] = [];
+
+    console.log(`Node ${node.name} has ${fills.length} fills to process`);
+
+    // Apply modifications to each fill
+    for (const fill of fills) {
+      let modifiedFill = { ...fill };
+
+      // Apply scale mode if provided and fill is an image or video
+      if (scaleMode && (fill.type === 'IMAGE' || fill.type === 'VIDEO')) {
+        console.log(`Applying scale mode ${scaleMode} to ${fill.type} fill`);
+        // Create a new ImagePaint object with the updated scaleMode
+        modifiedFill = {
+          ...fill,
+          scaleMode: scaleMode,
+        };
       }
-      return p;
-    });
-  }
 
-  // Apply blend mode if provided
-  if (blendMode) {
-    nodeWithFills.fills = (nodeWithFills.fills as Paint[]).map((p) => {
-      // Apply blend mode to all fill types
-      return { ...p, blendMode };
-    });
+      // Apply blend mode if provided
+      if (blendMode) {
+        console.log(`Applying blend mode ${blendMode} to fill`);
+        modifiedFill = {
+          ...modifiedFill,
+          blendMode: blendMode,
+        };
+      }
+
+      modifiedFills.push(modifiedFill);
+    }
+
+    // Apply the modified fills back to the node
+    console.log(`Applying ${modifiedFills.length} modified fills to node ${node.name}`);
+    nodeWithFills.fills = modifiedFills;
+
+    // Remove first fill layer if requested
+    if (shouldRemoveFillLayer && modifiedFills.length > 0) {
+      console.log(`Removing first fill layer from node ${node.name}`);
+      modifiedFills.splice(0, 1);
+      nodeWithFills.fills = modifiedFills;
+    }
+  } else {
+    console.log(`Node ${node.name} does not have fills property`);
   }
 
   // Resize if dimensions are provided
   if (widthCount > 0 || heightCount > 0) {
-    if (heightCount === 0) {
-      const widthResult = widthCount / nodeWithFills.width;
-      nodeWithFills.rescale(widthResult);
-      nodeWithFills.resize(Math.round(nodeWithFills.width), Math.round(nodeWithFills.height));
-    } else if (widthCount === 0) {
-      const heightResult = heightCount / nodeWithFills.height;
-      nodeWithFills.rescale(heightResult);
-      nodeWithFills.resize(Math.round(nodeWithFills.width), Math.round(nodeWithFills.height));
-    } else {
-      nodeWithFills.resize(widthCount, heightCount);
+    try {
+      // Different handling based on node type
+      if (node.type === 'VECTOR') {
+        console.log(`Special handling for VECTOR node: ${node.name}`);
+        // For vector nodes, we need to handle resizing differently
+        const vectorNode = node as VectorNode;
+
+        // Store original dimensions
+        const originalWidth = vectorNode.width;
+        const originalHeight = vectorNode.height;
+
+        console.log(`Original vector dimensions: ${originalWidth}x${originalHeight}`);
+
+        // Calculate scale factors
+        let scaleX = widthCount > 0 ? widthCount / originalWidth : 1;
+        let scaleY = heightCount > 0 ? heightCount / originalHeight : 1;
+
+        // If only one dimension is specified, maintain aspect ratio
+        if (widthCount > 0 && heightCount === 0) {
+          scaleY = scaleX;
+        } else if (heightCount > 0 && widthCount === 0) {
+          scaleX = scaleY;
+        }
+
+        // Apply scaling
+        console.log(`Scaling vector by factors: ${scaleX}x${scaleY}`);
+        if (scaleX === scaleY) {
+          // If scaling uniformly, we can use the single parameter version
+          vectorNode.rescale(scaleX);
+        } else {
+          // For non-uniform scaling, we need to use a different approach
+          // First scale to the width
+          vectorNode.rescale(scaleX);
+          // Then adjust the height if needed
+          if (heightCount > 0) {
+            vectorNode.resize(vectorNode.width, heightCount);
+          }
+        }
+
+        // Log new dimensions
+        console.log(`New vector dimensions: ${vectorNode.width}x${vectorNode.height}`);
+      }
+      // Handle other node types that support resize
+      else if ('resize' in node) {
+        const resizeableNode = node as SceneNode & {
+          resize: (width: number, height: number) => void;
+          width: number;
+          height: number;
+        };
+
+        // Log original dimensions
+        console.log(`Original dimensions: ${resizeableNode.width}x${resizeableNode.height}`);
+
+        if (heightCount === 0) {
+          // Only width specified
+          console.log(`Resizing to width: ${widthCount}`);
+          resizeableNode.resize(widthCount, resizeableNode.height);
+        } else if (widthCount === 0) {
+          // Only height specified
+          console.log(`Resizing to height: ${heightCount}`);
+          resizeableNode.resize(resizeableNode.width, heightCount);
+        } else {
+          // Both width and height specified
+          console.log(`Resizing to exact dimensions: ${widthCount}x${heightCount}`);
+          resizeableNode.resize(widthCount, heightCount);
+        }
+
+        // Log new dimensions
+        console.log(`New dimensions: ${resizeableNode.width}x${resizeableNode.height}`);
+      } else {
+        console.log(`Node ${node.name} does not support resizing`);
+      }
+    } catch (error) {
+      console.error(`Error resizing node ${node.name}:`, error);
     }
   }
 }
@@ -166,12 +269,13 @@ async function processSelectedNodes(
   scaleMode: ScaleModeType | null = null,
   widthCount: number = 0,
   heightCount: number = 0,
-  blendMode: BlendMode | null = null
+  blendMode: BlendMode | null = null,
+  shouldRemoveFillLayer: boolean = false
 ): Promise<number> {
   let processedCount = 0;
 
   for (const node of figma.currentPage.selection) {
-    await processNode(node, scaleMode, widthCount, heightCount, blendMode);
+    await processNode(node, scaleMode, widthCount, heightCount, blendMode, shouldRemoveFillLayer);
     processedCount++;
   }
 
@@ -205,7 +309,9 @@ function checkSelection(): boolean {
 
   // If no valid selection but there are selected nodes with fills property,
   // we'll consider it valid for the purpose of UI interaction
-  const hasFillsProperty = selection.some((node) => 'fills' in node);
+  const hasFillsProperty = selection.some(
+    (node) => 'fills' in node && Array.isArray(node.fills) && node.fills.length > 0
+  );
 
   // Log for debugging
   console.log(
@@ -215,6 +321,13 @@ function checkSelection(): boolean {
   // Return true if there's a valid selection or if there are nodes with fills property
   return hasValidSelection || hasFillsProperty;
 }
+
+// Set up selection change listener
+figma.on('selectionchange', () => {
+  // Check if there's a valid selection and notify the UI
+  const hasSelection = checkSelection();
+  figma.ui.postMessage({ type: 'selection-checked', hasSelection });
+});
 
 // Initialize by loading settings
 loadSettings().then(() => {
@@ -235,6 +348,14 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
   } = msg;
   let processedCount = 0;
 
+  // Log the received message for debugging
+  console.log(`Received message: ${type}`, {
+    widthCount,
+    heightCount,
+    selectedBlendMode,
+    selectedScaleMode,
+  });
+
   switch (type) {
     case 'load-settings':
       // Load settings and send them to the UI
@@ -246,6 +367,10 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
       // Check if there's a current selection and send result to UI
       const hasSelection = checkSelection();
       figma.ui.postMessage({ type: 'selection-checked', hasSelection });
+      break;
+
+    case 'watch-selection':
+      // This is handled by the selectionchange event listener
       break;
 
     case 'notify-no-selection':
@@ -269,38 +394,61 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
 
     case 'apply-settings':
       // Apply all current settings to the selection
+      console.log(
+        `Applying settings: width=${widthCount}, height=${heightCount}, blendMode=${selectedBlendMode}, scaleMode=${selectedScaleMode}`
+      );
       processedCount = await processSelectedNodes(
         selectedScaleMode as ScaleModeType,
         widthCount,
         heightCount,
-        selectedBlendMode as BlendMode
+        selectedBlendMode as BlendMode,
+        shouldRemoveFillLayer
       );
-      if (shouldRemoveFillLayer) await removeFillLayer();
-      figma.notify(`Applied settings to ${processedCount} images`);
+      figma.notify(`Applied settings to ${processedCount} objects`);
       break;
 
     case 'set-to-fill':
-      processedCount = await processSelectedNodes('FILL', widthCount, heightCount);
-      if (shouldRemoveFillLayer) await removeFillLayer();
-      figma.notify(`Set ${processedCount} images to FILL`);
+      processedCount = await processSelectedNodes(
+        'FILL',
+        widthCount,
+        heightCount,
+        null,
+        shouldRemoveFillLayer
+      );
+      figma.notify(`Set ${processedCount} objects to FILL`);
       break;
 
     case 'set-to-fit':
-      processedCount = await processSelectedNodes('FIT', widthCount, heightCount);
-      if (shouldRemoveFillLayer) await removeFillLayer();
-      figma.notify(`Set ${processedCount} images to FIT`);
+      processedCount = await processSelectedNodes(
+        'FIT',
+        widthCount,
+        heightCount,
+        null,
+        shouldRemoveFillLayer
+      );
+      figma.notify(`Set ${processedCount} objects to FIT`);
       break;
 
     case 'set-to-crop':
-      processedCount = await processSelectedNodes('CROP', widthCount, heightCount);
-      if (shouldRemoveFillLayer) await removeFillLayer();
-      figma.notify(`Set ${processedCount} images to CROP`);
+      processedCount = await processSelectedNodes(
+        'CROP',
+        widthCount,
+        heightCount,
+        null,
+        shouldRemoveFillLayer
+      );
+      figma.notify(`Set ${processedCount} objects to CROP`);
       break;
 
     case 'set-to-tile':
-      processedCount = await processSelectedNodes('TILE', widthCount, heightCount);
-      if (shouldRemoveFillLayer) await removeFillLayer();
-      figma.notify(`Set ${processedCount} images to TILE`);
+      processedCount = await processSelectedNodes(
+        'TILE',
+        widthCount,
+        heightCount,
+        null,
+        shouldRemoveFillLayer
+      );
+      figma.notify(`Set ${processedCount} objects to TILE`);
       break;
 
     case 'remove-fill-layer':
@@ -314,8 +462,7 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
 
     case 'update-dimensions':
       // Apply dimensions without changing scale mode
-      await processSelectedNodes(null, widthCount, heightCount);
-      if (shouldRemoveFillLayer) await removeFillLayer();
+      await processSelectedNodes(null, widthCount, heightCount, null, shouldRemoveFillLayer);
       break;
 
     case 'reset-dimensions':
@@ -325,14 +472,13 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
 
     case 'update':
       // General update - apply current settings
-      await processSelectedNodes(null, widthCount, heightCount);
-      if (shouldRemoveFillLayer) await removeFillLayer();
+      await processSelectedNodes(null, widthCount, heightCount, null, shouldRemoveFillLayer);
       break;
 
     case 'set-blend-mode':
       if (msg.blendMode) {
-        processedCount = await processSelectedNodes(null, 0, 0, msg.blendMode as BlendMode);
-        figma.notify(`Set ${processedCount} images to ${msg.blendMode} blend mode`);
+        processedCount = await processSelectedNodes(null, 0, 0, msg.blendMode as BlendMode, false);
+        figma.notify(`Set ${processedCount} objects to ${msg.blendMode} blend mode`);
       }
       break;
 
@@ -364,11 +510,12 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
             const fills = clone(nodeWithFills.fills) as Paint[];
 
             // Apply blend mode to all fills
-            nodeWithFills.fills = fills.map((fill) => ({
+            const modifiedFills = fills.map((fill) => ({
               ...fill,
               blendMode: msg.blendMode as BlendMode,
             }));
 
+            nodeWithFills.fills = modifiedFills;
             processedCount++;
           }
         });
@@ -411,7 +558,7 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
             const fills = clone(nodeWithFills.fills) as Paint[];
 
             // Apply scale mode to all fills
-            nodeWithFills.fills = fills.map((fill) => {
+            const modifiedFills = fills.map((fill) => {
               if (fill.type === 'IMAGE' || fill.type === 'VIDEO') {
                 return {
                   ...fill,
@@ -421,6 +568,7 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
               return fill;
             });
 
+            nodeWithFills.fills = modifiedFills;
             processedCount++;
           }
         });

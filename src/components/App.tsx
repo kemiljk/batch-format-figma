@@ -104,11 +104,15 @@ const App: React.FC = () => {
   };
 
   const handleWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setState({ ...state, widthCount: e.target.value });
+    const value = e.target.value;
+    console.log('Width changed to:', value);
+    setState({ ...state, widthCount: value });
   };
 
   const handleHeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setState({ ...state, heightCount: e.target.value });
+    const value = e.target.value;
+    console.log('Height changed to:', value);
+    setState({ ...state, heightCount: value });
   };
 
   const handleCheckboxChange = (checked: boolean) => {
@@ -209,12 +213,16 @@ const App: React.FC = () => {
   };
 
   const sendMessageToPlugin = (type: string, additionalData = {}) => {
+    // Convert width and height to numbers, ensuring they're valid numbers
+    const numericWidthCount = state.widthCount ? parseFloat(state.widthCount) : 0;
+    const numericHeightCount = state.heightCount ? parseFloat(state.heightCount) : 0;
+
     parent.postMessage(
       {
         pluginMessage: {
           type,
-          widthCount: state.widthCount ? Number(state.widthCount) : 0,
-          heightCount: state.heightCount ? Number(state.heightCount) : 0,
+          widthCount: numericWidthCount,
+          heightCount: numericHeightCount,
           checkboxOn: state.checkboxOn,
           removeFillLayer: state.removeFillLayer,
           selectedBlendMode: state.selectedBlendMode,
@@ -224,6 +232,14 @@ const App: React.FC = () => {
       },
       '*'
     );
+
+    // Log the message for debugging
+    console.log('Sending message to plugin:', {
+      type,
+      widthCount: numericWidthCount,
+      heightCount: numericHeightCount,
+      // other properties...
+    });
   };
 
   const handleApplyClick = () => {
@@ -239,10 +255,18 @@ const App: React.FC = () => {
     setState({ ...state, widthCount: '', heightCount: '' });
   };
 
-  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Function to apply dimensions immediately
+  const applyDimensions = () => {
+    if (hasSelection && (state.widthCount || state.heightCount)) {
+      console.log('Applying dimensions:', state.widthCount, state.heightCount);
+      sendMessageToPlugin('update-dimensions');
+    }
+  };
+
+  const handleDimensionKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       if (hasSelection) {
-        handleApplyClick();
+        applyDimensions();
       } else {
         // Prevent form submission if there's no selection
         e.preventDefault();
@@ -297,7 +321,7 @@ const App: React.FC = () => {
                       type='number'
                       value={state.widthCount}
                       onChange={handleWidthChange}
-                      onKeyDown={handleInputKeyDown}
+                      onKeyDown={handleDimensionKeyDown}
                       placeholder='Width'
                       className='w-full h-10 rounded-figma px-figma-3 bg-figma-bg-secondary text-figma-xs text-figma-text border border-transparent focus:border-figma-border-selected focus:outline-none'
                     />
@@ -311,7 +335,7 @@ const App: React.FC = () => {
                       type='number'
                       value={state.heightCount}
                       onChange={handleHeightChange}
-                      onKeyDown={handleInputKeyDown}
+                      onKeyDown={handleDimensionKeyDown}
                       placeholder='Height'
                       className='w-full h-10 rounded-figma px-figma-3 bg-figma-bg-secondary text-figma-xs text-figma-text border border-transparent focus:border-figma-border-selected focus:outline-none'
                     />
@@ -346,6 +370,12 @@ const App: React.FC = () => {
                   sideOffset={4}
                   align='start'
                   avoidCollisions={true}
+                  onCloseAutoFocus={(e) => {
+                    // Prevent focus returning to trigger when closing without selection
+                    if (highlightedScaleMode) {
+                      e.preventDefault();
+                    }
+                  }}
                 >
                   <Select.ScrollUpButton className='flex items-center justify-center h-6 bg-figma-bg text-figma-text cursor-default'>
                     <ChevronUpIcon />
@@ -357,6 +387,7 @@ const App: React.FC = () => {
                           key={option.value}
                           value={option.value}
                           onMouseEnter={() => handleScaleModeHighlight(option.value)}
+                          onFocus={() => handleScaleModeHighlight(option.value)}
                           className='text-figma-xs text-figma-text rounded-figma flex items-center h-8 px-figma-3 relative select-none data-[highlighted]:bg-figma-bg-selected data-[highlighted]:text-figma-text outline-none cursor-pointer'
                         >
                           <Select.ItemText>{option.label}</Select.ItemText>
@@ -397,6 +428,12 @@ const App: React.FC = () => {
                   sideOffset={4}
                   align='start'
                   avoidCollisions={true}
+                  onCloseAutoFocus={(e) => {
+                    // Prevent focus returning to trigger when closing without selection
+                    if (highlightedBlendMode) {
+                      e.preventDefault();
+                    }
+                  }}
                 >
                   <Select.ScrollUpButton className='flex items-center justify-center h-6 bg-figma-bg text-figma-text cursor-default'>
                     <ChevronUpIcon />
@@ -408,6 +445,7 @@ const App: React.FC = () => {
                           key={option.value}
                           value={option.value}
                           onMouseEnter={() => handleBlendModeHighlight(option.value)}
+                          onFocus={() => handleBlendModeHighlight(option.value)}
                           className='text-figma-xs text-figma-text rounded-figma flex items-center h-8 px-figma-3 relative select-none data-[highlighted]:bg-figma-bg-selected data-[highlighted]:text-figma-text outline-none cursor-pointer'
                         >
                           <Select.ItemText>{option.label}</Select.ItemText>

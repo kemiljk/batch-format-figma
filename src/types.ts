@@ -20,7 +20,8 @@ export type SupportedNodeType =
   | 'FRAME'
   | 'COMPONENT'
   | 'INSTANCE'
-  | 'GROUP';
+  | 'GROUP'
+  | 'VECTOR';
 
 // Blend mode types
 export type BlendModeType =
