@@ -7,6 +7,7 @@ interface ButtonProps {
   className?: string;
   fullWidth?: boolean;
   disabled?: boolean;
+  type?: 'button' | 'submit' | 'reset';
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -16,6 +17,7 @@ export const Button: React.FC<ButtonProps> = ({
   className = '',
   fullWidth = true,
   disabled = false,
+  type = 'button',
 }) => {
   const baseClasses =
     'flex items-center justify-center px-figma-4 py-figma-2 rounded-figma text-figma-sm font-figma-medium transition-all duration-100';
@@ -32,7 +34,7 @@ export const Button: React.FC<ButtonProps> = ({
     <button
       className={`${baseClasses} ${variantClasses} ${widthClass} ${disabledClass} ${className}`}
       onClick={onClick}
-      type='button'
+      type={type}
       disabled={disabled}
     >
       {children}

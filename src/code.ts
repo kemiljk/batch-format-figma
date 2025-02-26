@@ -1,8 +1,11 @@
-import { PluginMessage, ScaleModeType, SupportedNodeType, UIState } from './types';
+import { PluginMessage, Preset, ScaleModeType, SupportedNodeType, UIState } from './types';
 import { SUPPORTED_NODE_TYPES } from './constants';
 
+// Debug mode flag - set to false to disable verbose logging
+const DEBUG_MODE = false;
+
 // Show UI with theme colors
-figma.showUI(__html__, { themeColors: true, width: 300, height: 380 });
+figma.showUI(__html__, { themeColors: true, width: 300, height: 374 });
 
 // Default settings
 const DEFAULT_SETTINGS: UIState = {
@@ -12,13 +15,15 @@ const DEFAULT_SETTINGS: UIState = {
   selectedBlendMode: 'NORMAL',
   removeFillLayer: false,
   selectedScaleMode: 'FILL',
+  presets: [],
+  activePreset: null,
 };
 
 // Settings key for client storage
 const SETTINGS_KEY = 'batch-format-settings';
+const PRESETS_KEY = 'batch-format-presets';
 
-// Store original fills for preview functionality
-let originalFills: Map<string, Paint[]> = new Map();
+// Preview functionality has been removed to improve stability
 
 /**
  * Load settings from client storage
@@ -26,7 +31,12 @@ let originalFills: Map<string, Paint[]> = new Map();
 async function loadSettings(): Promise<UIState> {
   try {
     const savedSettings = await figma.clientStorage.getAsync(SETTINGS_KEY);
-    return { ...DEFAULT_SETTINGS, ...savedSettings };
+    const savedPresets = (await figma.clientStorage.getAsync(PRESETS_KEY)) || [];
+    return {
+      ...DEFAULT_SETTINGS,
+      ...savedSettings,
+      presets: savedPresets,
+    };
   } catch (error) {
     console.error('Error loading settings:', error);
     return DEFAULT_SETTINGS;
@@ -52,9 +62,85 @@ async function saveSettings(settings: Partial<UIState>): Promise<void> {
           ? String(settings.heightCount)
           : currentSettings.heightCount,
     };
-    await figma.clientStorage.setAsync(SETTINGS_KEY, updatedSettings);
+
+    // Save presets separately
+    if (settings.presets) {
+      await figma.clientStorage.setAsync(PRESETS_KEY, settings.presets);
+    }
+
+    // Remove presets from main settings to avoid duplication
+    const { presets, ...settingsWithoutPresets } = updatedSettings;
+    await figma.clientStorage.setAsync(SETTINGS_KEY, settingsWithoutPresets);
   } catch (error) {
     console.error('Error saving settings:', error);
+  }
+}
+
+/**
+ * Save a preset
+ */
+async function savePreset(preset: Preset): Promise<void> {
+  try {
+    const currentSettings = await loadSettings();
+    const currentPresets = currentSettings.presets || [];
+
+    // Add the new preset
+    const updatedPresets = [...currentPresets, preset];
+
+    // Update settings with new presets
+    await saveSettings({
+      ...currentSettings,
+      presets: updatedPresets,
+      activePreset: preset.id,
+    });
+
+    // Notify UI that preset was saved
+    figma.ui.postMessage({
+      type: 'preset-saved',
+      settings: {
+        ...currentSettings,
+        presets: updatedPresets,
+        activePreset: preset.id,
+      },
+    });
+  } catch (error) {
+    console.error('Error saving preset:', error);
+  }
+}
+
+/**
+ * Delete a preset
+ */
+async function deletePreset(presetId: string): Promise<void> {
+  try {
+    const currentSettings = await loadSettings();
+    const currentPresets = currentSettings.presets || [];
+
+    // Filter out the preset to delete
+    const updatedPresets = currentPresets.filter((p) => p.id !== presetId);
+
+    // Update active preset if needed
+    const updatedActivePreset =
+      currentSettings.activePreset === presetId ? null : currentSettings.activePreset;
+
+    // Update settings with new presets
+    await saveSettings({
+      ...currentSettings,
+      presets: updatedPresets,
+      activePreset: updatedActivePreset,
+    });
+
+    // Notify UI that preset was deleted
+    figma.ui.postMessage({
+      type: 'preset-deleted',
+      settings: {
+        ...currentSettings,
+        presets: updatedPresets,
+        activePreset: updatedActivePreset,
+      },
+    });
+  } catch (error) {
+    console.error('Error deleting preset:', error);
   }
 }
 
@@ -62,38 +148,82 @@ async function saveSettings(settings: Partial<UIState>): Promise<void> {
  * Helper function to clone an object
  */
 function clone<T>(val: T): T {
-  return JSON.parse(JSON.stringify(val));
+  try {
+    // For Figma objects, use a safer approach
+    if (val === null || val === undefined) {
+      return val;
+    }
+
+    // Special handling for Figma Paint objects
+    if (Array.isArray(val)) {
+      return val.map((item) => (item ? { ...item } : item)) as unknown as T;
+    }
+
+    // For regular objects
+    if (typeof val === 'object') {
+      return { ...val } as T;
+    }
+
+    // Fallback to JSON method for other cases
+    return JSON.parse(JSON.stringify(val));
+  } catch (error) {
+    console.error('Error cloning object:', error);
+    // Return the original value if cloning fails
+    return val;
+  }
 }
 
 /**
  * Checks if a node has image fills
  */
 function hasImageFills(node: SceneNode): boolean {
-  if ('fills' in node) {
-    const fills = node.fills as readonly Paint[] | Paint[];
-    if (Array.isArray(fills)) {
-      // Log the fills for debugging
-      console.log(
-        `Node ${node.name} (${node.type}) has ${fills.length} fills:`,
-        fills.map((f) => f.type).join(', ')
-      );
-
-      // Check each fill to see if it's an image or video
-      for (const fill of fills) {
-        if (fill.type === 'IMAGE' || fill.type === 'VIDEO') {
-          console.log(`Found image/video fill in node ${node.name}`);
-          return true;
+  try {
+    if ('fills' in node) {
+      const fills = node.fills as readonly Paint[] | Paint[];
+      if (Array.isArray(fills)) {
+        // Only log fills when debugging is enabled
+        if (DEBUG_MODE) {
+          console.log(
+            `Node ${node.name} (${node.type}) has ${fills.length} fills:`,
+            fills.map((f) => f.type).join(', ')
+          );
         }
 
-        // For vector nodes, check if there's a visible fill that might be an image
-        if (fill.visible !== false && fill.opacity !== 0) {
-          console.log(`Found visible fill in node ${node.name}, treating as valid`);
-          return true;
+        // Check each fill to see if it's an image or video
+        for (const fill of fills) {
+          // Skip null or undefined fills
+          if (!fill) continue;
+
+          // Check for image or video fills
+          if (fill.type === 'IMAGE' || fill.type === 'VIDEO') {
+            if (DEBUG_MODE) {
+              console.log(`Found image/video fill in node ${node.name}`);
+            }
+            return true;
+          }
+        }
+
+        // For nodes that might have image fills but not directly identified as IMAGE type
+        // This helps with GIF frames and other special cases
+        if (node.type === 'RECTANGLE' || node.type === 'FRAME' || node.type === 'INSTANCE') {
+          // If the node has any fills at all, consider it valid for our purposes
+          // This is more permissive but ensures we don't miss GIF frames
+          if (fills.length > 0) {
+            if (DEBUG_MODE) {
+              console.log(
+                `Node ${node.name} is a ${node.type} with fills, treating as valid for image operations`
+              );
+            }
+            return true;
+          }
         }
       }
     }
+    return false;
+  } catch (error) {
+    console.error(`Error checking image fills for node ${node.name}:`, error);
+    return false;
   }
-  return false;
 }
 
 /**
@@ -107,138 +237,146 @@ async function processNode(
   blendMode: BlendMode | null = null,
   shouldRemoveFillLayer: boolean = false
 ): Promise<void> {
-  console.log(`Processing node: ${node.name} (${node.type})`);
+  if (DEBUG_MODE) {
+    console.log(`Processing node: ${node.name} (${node.type})`);
+  }
 
   // Check if node is a supported type
   if (!SUPPORTED_NODE_TYPES.includes(node.type as SupportedNodeType)) {
-    console.log(`Node ${node.name} is not a supported type: ${node.type}`);
+    if (DEBUG_MODE) {
+      console.log(`Node ${node.name} is not a supported type: ${node.type}`);
+    }
     return;
   }
 
   // Handle fills if the node has them
   if ('fills' in node) {
-    // Cast node to a type with fills
-    const nodeWithFills = node as GeometryMixin;
-
-    // Create a copy of the fills to modify
-    const fills = clone(nodeWithFills.fills) as Paint[];
-    const modifiedFills: Paint[] = [];
-
-    console.log(`Node ${node.name} has ${fills.length} fills to process`);
-
-    // Apply modifications to each fill
-    for (const fill of fills) {
-      let modifiedFill = { ...fill };
-
-      // Apply scale mode if provided and fill is an image or video
-      if (scaleMode && (fill.type === 'IMAGE' || fill.type === 'VIDEO')) {
-        console.log(`Applying scale mode ${scaleMode} to ${fill.type} fill`);
-        // Create a new ImagePaint object with the updated scaleMode
-        modifiedFill = {
-          ...fill,
-          scaleMode: scaleMode,
-        };
-      }
-
-      // Apply blend mode if provided
-      if (blendMode) {
-        console.log(`Applying blend mode ${blendMode} to fill`);
-        modifiedFill = {
-          ...modifiedFill,
-          blendMode: blendMode,
-        };
-      }
-
-      modifiedFills.push(modifiedFill);
-    }
-
-    // Apply the modified fills back to the node
-    console.log(`Applying ${modifiedFills.length} modified fills to node ${node.name}`);
-    nodeWithFills.fills = modifiedFills;
-
-    // Remove first fill layer if requested
-    if (shouldRemoveFillLayer && modifiedFills.length > 0) {
-      console.log(`Removing first fill layer from node ${node.name}`);
-      modifiedFills.splice(0, 1);
-      nodeWithFills.fills = modifiedFills;
-    }
-  } else {
-    console.log(`Node ${node.name} does not have fills property`);
-  }
-
-  // Resize if dimensions are provided
-  if (widthCount > 0 || heightCount > 0) {
     try {
-      // Different handling based on node type
-      if (node.type === 'VECTOR') {
-        console.log(`Special handling for VECTOR node: ${node.name}`);
-        // For vector nodes, we need to handle resizing differently
-        const vectorNode = node as VectorNode;
+      // Cast node to a type with fills
+      const nodeWithFills = node as GeometryMixin;
 
-        // Store original dimensions
-        const originalWidth = vectorNode.width;
-        const originalHeight = vectorNode.height;
+      // Check if fills is valid before proceeding
+      if (!nodeWithFills.fills) {
+        if (DEBUG_MODE) {
+          console.log(`Node ${node.name} has no fills property or it's null`);
+        }
+        return;
+      }
 
-        console.log(`Original vector dimensions: ${originalWidth}x${originalHeight}`);
+      // Create a copy of the fills to modify
+      const fills = clone(nodeWithFills.fills) as Paint[];
+      const modifiedFills: Paint[] = [];
 
-        // Calculate scale factors
-        let scaleX = widthCount > 0 ? widthCount / originalWidth : 1;
-        let scaleY = heightCount > 0 ? heightCount / originalHeight : 1;
+      if (DEBUG_MODE) {
+        console.log(`Node ${node.name} has ${fills.length} fills to process`);
+      }
 
-        // If only one dimension is specified, maintain aspect ratio
-        if (widthCount > 0 && heightCount === 0) {
-          scaleY = scaleX;
-        } else if (heightCount > 0 && widthCount === 0) {
-          scaleX = scaleY;
+      // Apply modifications to each fill
+      for (const fill of fills) {
+        // Skip null or undefined fills
+        if (!fill) {
+          modifiedFills.push(fill);
+          continue;
         }
 
-        // Apply scaling
-        console.log(`Scaling vector by factors: ${scaleX}x${scaleY}`);
-        if (scaleX === scaleY) {
-          // If scaling uniformly, we can use the single parameter version
-          vectorNode.rescale(scaleX);
-        } else {
-          // For non-uniform scaling, we need to use a different approach
-          // First scale to the width
-          vectorNode.rescale(scaleX);
-          // Then adjust the height if needed
-          if (heightCount > 0) {
-            vectorNode.resize(vectorNode.width, heightCount);
+        let modifiedFill = { ...fill };
+
+        // Apply scale mode if provided and fill is an image or video
+        if (scaleMode && (fill.type === 'IMAGE' || fill.type === 'VIDEO')) {
+          if (DEBUG_MODE) {
+            console.log(`Applying scale mode ${scaleMode} to ${fill.type} fill`);
+          }
+          try {
+            // Create a new ImagePaint object with the updated scaleMode
+            modifiedFill = {
+              ...fill,
+              scaleMode: scaleMode,
+            };
+          } catch (error) {
+            console.error(`Error applying scale mode to ${node.name}:`, error);
+            // Keep the original fill if there's an error
+            modifiedFill = fill;
+          }
+        }
+        // For GIF frames and other special cases, we need to be more careful
+        // Only apply scaleMode to IMAGE or VIDEO fills
+        else if (
+          scaleMode &&
+          (node.type === 'RECTANGLE' || node.type === 'FRAME' || node.type === 'INSTANCE') &&
+          (fill.type === 'IMAGE' || fill.type === 'VIDEO')
+        ) {
+          if (DEBUG_MODE) {
+            console.log(
+              `Attempting to apply scale mode ${scaleMode} to ${node.type} with ${fill.type} fill`
+            );
+          }
+          try {
+            // Only apply scale mode to IMAGE or VIDEO fills
+            modifiedFill = {
+              ...fill,
+              scaleMode: scaleMode,
+            };
+          } catch (error) {
+            console.error(
+              `Error applying scale mode to ${node.name} with fill type ${fill.type}:`,
+              error
+            );
+            // Keep the original fill if there's an error
+            modifiedFill = fill;
           }
         }
 
-        // Log new dimensions
-        console.log(`New vector dimensions: ${vectorNode.width}x${vectorNode.height}`);
-      }
-      // Handle other node types that support resize
-      else if ('resize' in node) {
-        const resizeableNode = node as SceneNode & {
-          resize: (width: number, height: number) => void;
-          width: number;
-          height: number;
-        };
-
-        // Log original dimensions
-        console.log(`Original dimensions: ${resizeableNode.width}x${resizeableNode.height}`);
-
-        if (heightCount === 0) {
-          // Only width specified
-          console.log(`Resizing to width: ${widthCount}`);
-          resizeableNode.resize(widthCount, resizeableNode.height);
-        } else if (widthCount === 0) {
-          // Only height specified
-          console.log(`Resizing to height: ${heightCount}`);
-          resizeableNode.resize(resizeableNode.width, heightCount);
-        } else {
-          // Both width and height specified
-          console.log(`Resizing to exact dimensions: ${widthCount}x${heightCount}`);
-          resizeableNode.resize(widthCount, heightCount);
+        // Apply blend mode if provided
+        if (blendMode) {
+          if (DEBUG_MODE) {
+            console.log(`Applying blend mode ${blendMode} to fill`);
+          }
+          try {
+            modifiedFill = {
+              ...modifiedFill,
+              blendMode: blendMode,
+            };
+          } catch (error) {
+            console.error(`Error applying blend mode to ${node.name}:`, error);
+            // If blend mode application fails, keep the previous state
+          }
         }
 
-        // Log new dimensions
-        console.log(`New dimensions: ${resizeableNode.width}x${resizeableNode.height}`);
-      } else {
-        console.log(`Node ${node.name} does not support resizing`);
+        // Add the modified fill to the list
+        modifiedFills.push(modifiedFill);
+      }
+
+      // Apply the modified fills to the node
+      nodeWithFills.fills = modifiedFills;
+
+      // If we should remove the fill layer, do it
+      if (shouldRemoveFillLayer) {
+        await removeFillLayer();
+      }
+    } catch (error) {
+      console.error(`Error processing fills for node ${node.name}:`, error);
+      // Continue with other nodes even if this one fails
+    }
+  }
+
+  // Apply dimensions if provided
+  if ((widthCount > 0 || heightCount > 0) && 'resize' in node) {
+    try {
+      // Get current dimensions
+      const currentWidth = node.width;
+      const currentHeight = node.height;
+
+      // Calculate new dimensions
+      const newWidth = widthCount > 0 ? widthCount : currentWidth;
+      const newHeight = heightCount > 0 ? heightCount : currentHeight;
+
+      // Apply new dimensions
+      if (newWidth !== currentWidth || newHeight !== currentHeight) {
+        // Cast node to a type that has resize method
+        const resizeableNode = node as SceneNode & {
+          resize: (width: number, height: number) => void;
+        };
+        resizeableNode.resize(newWidth, newHeight);
       }
     } catch (error) {
       console.error(`Error resizing node ${node.name}:`, error);
@@ -251,19 +389,48 @@ async function processNode(
  */
 async function removeFillLayer(): Promise<void> {
   figma.currentPage.selection.forEach((node) => {
-    if ('fills' in node) {
-      const fills = clone(node.fills) as Paint[];
-      if (fills.length > 0) {
+    try {
+      if ('fills' in node) {
+        const nodeWithFills = node as GeometryMixin;
+
+        // Check if fills is valid before proceeding
+        if (
+          !nodeWithFills.fills ||
+          !Array.isArray(nodeWithFills.fills) ||
+          nodeWithFills.fills.length <= 1 // Don't remove if there's only one fill
+        ) {
+          return;
+        }
+
+        const fills = clone(nodeWithFills.fills) as Paint[];
+
+        // Only remove the first fill if it's not an image or video
+        // This prevents removing important image fills
+        const firstFill = fills[0];
+        if (firstFill && (firstFill.type === 'IMAGE' || firstFill.type === 'VIDEO')) {
+          // Don't remove image or video fills
+          if (DEBUG_MODE) {
+            console.log(`Not removing first fill from ${node.name} because it's an image or video`);
+          }
+          return;
+        }
+
         // Remove the first fill (default grey fill)
         fills.splice(0, 1);
-        (node as GeometryMixin).fills = fills;
+        nodeWithFills.fills = fills;
+
+        if (DEBUG_MODE) {
+          console.log(`Removed first fill from ${node.name}`);
+        }
       }
+    } catch (error) {
+      console.error(`Error removing fill layer from node ${node.name}:`, error);
     }
   });
 }
 
 /**
- * Process all selected nodes with the given parameters
+ * Processes all selected nodes
  */
 async function processSelectedNodes(
   scaleMode: ScaleModeType | null = null,
@@ -274,9 +441,28 @@ async function processSelectedNodes(
 ): Promise<number> {
   let processedCount = 0;
 
-  for (const node of figma.currentPage.selection) {
-    await processNode(node, scaleMode, widthCount, heightCount, blendMode, shouldRemoveFillLayer);
-    processedCount++;
+  try {
+    // Process each selected node
+    for (const node of figma.currentPage.selection) {
+      try {
+        if (hasImageFills(node)) {
+          await processNode(
+            node,
+            scaleMode,
+            widthCount,
+            heightCount,
+            blendMode,
+            shouldRemoveFillLayer
+          );
+          processedCount++;
+        }
+      } catch (error) {
+        console.error(`Error processing node ${node.name}:`, error);
+        // Continue with other nodes even if this one fails
+      }
+    }
+  } catch (error) {
+    console.error('Error processing selected nodes:', error);
   }
 
   return processedCount;
@@ -291,16 +477,19 @@ function checkSelection(): boolean {
     return false;
   }
 
-  // Log each selected node for debugging
-  selection.forEach((node, index) => {
-    console.log(`Selected node ${index + 1}: ${node.name} (${node.type})`);
-    if ('fills' in node) {
-      const fills = node.fills as readonly Paint[] | Paint[];
-      console.log(`  Has fills property with ${Array.isArray(fills) ? fills.length : 0} fills`);
-    } else {
-      console.log(`  No fills property`);
-    }
-  });
+  // Only log selection details when debugging is enabled
+  if (DEBUG_MODE) {
+    // Log each selected node for debugging
+    selection.forEach((node, index) => {
+      console.log(`Selected node ${index + 1}: ${node.name} (${node.type})`);
+      if ('fills' in node) {
+        const fills = node.fills as readonly Paint[] | Paint[];
+        console.log(`  Has fills property with ${Array.isArray(fills) ? fills.length : 0} fills`);
+      } else {
+        console.log(`  No fills property`);
+      }
+    });
+  }
 
   // Check if at least one selected node has image fills
   const hasValidSelection = selection.some(
@@ -313,273 +502,212 @@ function checkSelection(): boolean {
     (node) => 'fills' in node && Array.isArray(node.fills) && node.fills.length > 0
   );
 
-  // Log for debugging
-  console.log(
-    `Selection check: ${selection.length} nodes selected, valid: ${hasValidSelection}, has fills property: ${hasFillsProperty}`
-  );
+  // Only log when debugging is enabled
+  if (DEBUG_MODE) {
+    console.log(
+      `Selection check: ${selection.length} nodes selected, valid: ${hasValidSelection}, has fills property: ${hasFillsProperty}`
+    );
+  }
 
   // Return true if there's a valid selection or if there are nodes with fills property
   return hasValidSelection || hasFillsProperty;
 }
 
-// Set up selection change listener
-figma.on('selectionchange', () => {
-  // Check if there's a valid selection and notify the UI
+// Set up selection change listener - only set up once at the plugin initialization
+// Remove this listener as it's duplicated by the 'watch-selection' message handler
+// figma.on('selectionchange', () => {
+//   // Check if there's a valid selection and notify the UI
+//   const hasSelection = checkSelection();
+//   figma.ui.postMessage({ type: 'selection-checked', hasSelection });
+// });
+
+// Handler for selection changes
+function selectionChangeHandler() {
   const hasSelection = checkSelection();
   figma.ui.postMessage({ type: 'selection-checked', hasSelection });
-});
+}
 
-// Initialize by loading settings
-loadSettings().then(() => {
-  // Ready to receive messages
-  figma.ui.postMessage({ type: 'plugin-ready' });
-});
+// Add basic error handling for the plugin
+try {
+  // We can't use window event listeners or figma.on('error') in this context
+  // Instead, we'll rely on try-catch blocks around critical operations
+  console.log('Plugin initialized with error handling');
+} catch (error) {
+  console.error('Error in plugin initialization:', error);
+}
+
+// Initialize the plugin with error handling
+try {
+  // Initialize by loading settings
+  loadSettings()
+    .then(() => {
+      // Ready to receive messages
+      figma.ui.postMessage({ type: 'plugin-ready' });
+    })
+    .catch((error) => {
+      console.error('Error during plugin initialization:', error);
+      figma.notify('Failed to initialize plugin settings. Please try reloading.', { error: true });
+    });
+} catch (error) {
+  console.error('Critical error during plugin startup:', error);
+  figma.notify('Failed to start plugin. Please try reloading Figma.', { error: true });
+}
 
 // Handle messages from the UI
 figma.ui.onmessage = async (msg: PluginMessage) => {
-  const {
-    type,
-    widthCount = 0,
-    heightCount = 0,
-    checkboxOn = false,
-    removeFillLayer: shouldRemoveFillLayer = false,
-    selectedBlendMode = 'NORMAL',
-    selectedScaleMode = 'FILL',
-  } = msg;
-  let processedCount = 0;
-
-  // Log the received message for debugging
-  console.log(`Received message: ${type}`, {
-    widthCount,
-    heightCount,
-    selectedBlendMode,
-    selectedScaleMode,
-  });
-
-  switch (type) {
-    case 'load-settings':
-      // Load settings and send them to the UI
-      const settings = await loadSettings();
-      figma.ui.postMessage({ type: 'settings-loaded', settings });
-      break;
-
-    case 'check-selection':
-      // Check if there's a current selection and send result to UI
-      const hasSelection = checkSelection();
-      figma.ui.postMessage({ type: 'selection-checked', hasSelection });
-      break;
-
-    case 'watch-selection':
-      // This is handled by the selectionchange event listener
-      break;
-
-    case 'notify-no-selection':
-      // Notify user that they need to select something first
-      figma.notify(
-        'Please select at least one object with an image fill (Rectangle, Frame, etc. with an image imported as a fill)'
-      );
-      break;
-
-    case 'save-settings':
-      // Save current settings
-      await saveSettings({
-        widthCount: widthCount ? String(widthCount) : '',
-        heightCount: heightCount ? String(heightCount) : '',
-        checkboxOn,
-        removeFillLayer: shouldRemoveFillLayer,
-        selectedBlendMode,
-        selectedScaleMode,
-      });
-      break;
-
-    case 'apply-settings':
-      // Apply all current settings to the selection
-      console.log(
-        `Applying settings: width=${widthCount}, height=${heightCount}, blendMode=${selectedBlendMode}, scaleMode=${selectedScaleMode}`
-      );
-      processedCount = await processSelectedNodes(
-        selectedScaleMode as ScaleModeType,
-        widthCount,
-        heightCount,
-        selectedBlendMode as BlendMode,
-        shouldRemoveFillLayer
-      );
-      figma.notify(`Applied settings to ${processedCount} objects`);
-      break;
-
-    case 'set-to-fill':
-      processedCount = await processSelectedNodes(
-        'FILL',
-        widthCount,
-        heightCount,
-        null,
-        shouldRemoveFillLayer
-      );
-      figma.notify(`Set ${processedCount} objects to FILL`);
-      break;
-
-    case 'set-to-fit':
-      processedCount = await processSelectedNodes(
-        'FIT',
-        widthCount,
-        heightCount,
-        null,
-        shouldRemoveFillLayer
-      );
-      figma.notify(`Set ${processedCount} objects to FIT`);
-      break;
-
-    case 'set-to-crop':
-      processedCount = await processSelectedNodes(
-        'CROP',
-        widthCount,
-        heightCount,
-        null,
-        shouldRemoveFillLayer
-      );
-      figma.notify(`Set ${processedCount} objects to CROP`);
-      break;
-
-    case 'set-to-tile':
-      processedCount = await processSelectedNodes(
-        'TILE',
-        widthCount,
-        heightCount,
-        null,
-        shouldRemoveFillLayer
-      );
-      figma.notify(`Set ${processedCount} objects to TILE`);
-      break;
-
-    case 'remove-fill-layer':
-      await removeFillLayer();
-      figma.notify('Removed fill layers');
-      break;
-
-    case 'keep-fill-layer':
-      // Do nothing, just acknowledge the setting change
-      break;
-
-    case 'update-dimensions':
-      // Apply dimensions without changing scale mode
-      await processSelectedNodes(null, widthCount, heightCount, null, shouldRemoveFillLayer);
-      break;
-
-    case 'reset-dimensions':
-      // Just notify that dimensions were reset
-      figma.notify('Dimensions reset');
-      break;
-
-    case 'update':
-      // General update - apply current settings
-      await processSelectedNodes(null, widthCount, heightCount, null, shouldRemoveFillLayer);
-      break;
-
-    case 'set-blend-mode':
-      if (msg.blendMode) {
-        processedCount = await processSelectedNodes(null, 0, 0, msg.blendMode as BlendMode, false);
-        figma.notify(`Set ${processedCount} objects to ${msg.blendMode} blend mode`);
-      }
-      break;
-
-    case 'preview-changes':
-      figma.notify('Changes applied');
-      break;
-
-    case 'cancel':
-      figma.closePlugin();
-      break;
-
-    case 'preview-blend-mode':
-      if (msg.blendMode) {
-        // Store original fills before preview if not already stored
-        if (originalFills.size === 0) {
-          figma.currentPage.selection.forEach((node) => {
-            if ('fills' in node) {
-              // Create a deep copy of the fills to avoid readonly issues
-              const fillsCopy = JSON.parse(JSON.stringify(node.fills)) as Paint[];
-              originalFills.set(node.id, fillsCopy);
-            }
-          });
-        }
-
-        // Apply blend mode for preview to all nodes with fills
-        figma.currentPage.selection.forEach((node) => {
-          if ('fills' in node) {
-            const nodeWithFills = node as GeometryMixin;
-            const fills = clone(nodeWithFills.fills) as Paint[];
-
-            // Apply blend mode to all fills
-            const modifiedFills = fills.map((fill) => ({
-              ...fill,
-              blendMode: msg.blendMode as BlendMode,
-            }));
-
-            nodeWithFills.fills = modifiedFills;
-            processedCount++;
-          }
-        });
-
-        console.log(`Preview blend mode: ${msg.blendMode}, applied to ${processedCount} nodes`);
-      }
-      break;
-
-    case 'reset-preview':
-      // Restore original fills
-      if (originalFills.size > 0) {
-        figma.currentPage.selection.forEach((node) => {
-          if ('fills' in node && originalFills.has(node.id)) {
-            (node as GeometryMixin).fills = originalFills.get(node.id)!;
-          }
-        });
-        // Clear the stored fills
-        originalFills.clear();
-        console.log('Reset preview: original fills restored');
-      }
-      break;
-
-    case 'preview-scale-mode':
-      if (msg.scaleMode) {
-        // Store original fills before preview if not already stored
-        if (originalFills.size === 0) {
-          figma.currentPage.selection.forEach((node) => {
-            if ('fills' in node) {
-              // Create a deep copy of the fills to avoid readonly issues
-              const fillsCopy = JSON.parse(JSON.stringify(node.fills)) as Paint[];
-              originalFills.set(node.id, fillsCopy);
-            }
-          });
-        }
-
-        // Apply scale mode for preview to all nodes with fills
-        figma.currentPage.selection.forEach((node) => {
-          if ('fills' in node) {
-            const nodeWithFills = node as GeometryMixin;
-            const fills = clone(nodeWithFills.fills) as Paint[];
-
-            // Apply scale mode to all fills
-            const modifiedFills = fills.map((fill) => {
-              if (fill.type === 'IMAGE' || fill.type === 'VIDEO') {
-                return {
-                  ...fill,
-                  scaleMode: msg.scaleMode as ScaleModeType,
-                };
-              }
-              return fill;
-            });
-
-            nodeWithFills.fills = modifiedFills;
-            processedCount++;
-          }
-        });
-
-        console.log(`Preview scale mode: ${msg.scaleMode}, applied to ${processedCount} nodes`);
-      }
-      break;
+  // Only log messages when debugging is enabled
+  if (DEBUG_MODE) {
+    console.log('Received message from UI:', msg);
   }
 
-  // Close plugin if checkbox is checked
-  if (checkboxOn) {
-    figma.closePlugin();
+  // Load settings
+  if (msg.type === 'load-settings') {
+    const settings = await loadSettings();
+    figma.ui.postMessage({ type: 'settings-loaded', settings });
+  }
+
+  // Save settings
+  else if (msg.type === 'save-settings') {
+    await saveSettings({
+      widthCount: msg.widthCount !== undefined ? String(msg.widthCount) : undefined,
+      heightCount: msg.heightCount !== undefined ? String(msg.heightCount) : undefined,
+      checkboxOn: msg.checkboxOn,
+      selectedBlendMode: msg.selectedBlendMode,
+      removeFillLayer: msg.removeFillLayer,
+      selectedScaleMode: msg.selectedScaleMode,
+      activePreset: msg.activePreset,
+    });
+  }
+
+  // Save preset
+  else if (msg.type === 'save-preset') {
+    if (msg.preset) {
+      await savePreset(msg.preset);
+    }
+  }
+
+  // Delete preset
+  else if (msg.type === 'delete-preset') {
+    if (msg.presetId) {
+      await deletePreset(msg.presetId);
+    }
+  }
+
+  // Apply settings to selection
+  else if (msg.type === 'apply-settings') {
+    console.log('Applying settings to selection:', {
+      scaleMode: msg.selectedScaleMode,
+      widthCount: msg.widthCount,
+      heightCount: msg.heightCount,
+      blendMode: msg.selectedBlendMode,
+      removeFillLayer: msg.removeFillLayer,
+    });
+
+    // Apply the settings to selected nodes
+    const count = await processSelectedNodes(
+      msg.selectedScaleMode,
+      msg.widthCount,
+      msg.heightCount,
+      msg.selectedBlendMode,
+      msg.removeFillLayer
+    );
+
+    if (count > 0) {
+      figma.notify(`Applied changes to ${count} node${count !== 1 ? 's' : ''}`);
+    } else {
+      figma.notify('No valid nodes found in selection');
+    }
+  }
+
+  // Update dimensions
+  else if (msg.type === 'update-dimensions') {
+    const count = await applyDimensions(msg.widthCount, msg.heightCount, msg.checkboxOn);
+
+    if (count > 0) {
+      figma.notify(`Applied dimensions to ${count} node${count !== 1 ? 's' : ''}`);
+    } else {
+      figma.notify('No valid nodes found in selection');
+    }
+  }
+
+  // Notify no selection
+  else if (msg.type === 'notify-no-selection') {
+    figma.notify(
+      'Please select at least one object with an image fill (Rectangle, Frame, etc. with an image imported as a fill)'
+    );
+  }
+
+  // Check if there's a selection
+  else if (msg.type === 'check-selection') {
+    const hasSelection = checkSelection();
+    figma.ui.postMessage({ type: 'selection-checked', hasSelection });
+  }
+
+  // Watch for selection changes
+  else if (msg.type === 'watch-selection') {
+    // Remove any existing listeners to prevent duplicates
+    figma.off('selectionchange', selectionChangeHandler);
+
+    // Set up the selection change listener
+    figma.on('selectionchange', selectionChangeHandler);
   }
 };
+
+/**
+ * Apply dimensions to selected nodes
+ */
+async function applyDimensions(
+  widthCount: number = 0,
+  heightCount: number = 0,
+  maintainAspectRatio: boolean = false
+): Promise<number> {
+  let processedCount = 0;
+
+  // Process each selected node
+  for (const node of figma.currentPage.selection) {
+    if (!SUPPORTED_NODE_TYPES.includes(node.type as SupportedNodeType)) {
+      continue;
+    }
+
+    // Skip nodes without width or height
+    if (!('width' in node) || !('height' in node)) {
+      continue;
+    }
+
+    // Get current dimensions
+    const currentWidth = node.width;
+    const currentHeight = node.height;
+
+    // Calculate new dimensions
+    let newWidth = widthCount > 0 ? widthCount : currentWidth;
+    let newHeight = heightCount > 0 ? heightCount : currentHeight;
+
+    // Maintain aspect ratio if requested
+    if (maintainAspectRatio) {
+      const aspectRatio = currentWidth / currentHeight;
+
+      if (widthCount > 0 && heightCount === 0) {
+        // Width provided, calculate height
+        newHeight = newWidth / aspectRatio;
+      } else if (heightCount > 0 && widthCount === 0) {
+        // Height provided, calculate width
+        newWidth = newHeight * aspectRatio;
+      } else if (widthCount > 0 && heightCount > 0) {
+        // Both provided, use width as reference
+        newHeight = newWidth / aspectRatio;
+      }
+    }
+
+    // Apply new dimensions
+    if (newWidth !== currentWidth || newHeight !== currentHeight) {
+      // Cast node to a type that has resize method
+      const resizeableNode = node as SceneNode & {
+        resize: (width: number, height: number) => void;
+      };
+      resizeableNode.resize(newWidth, newHeight);
+      processedCount++;
+    }
+  }
+
+  return processedCount;
+}

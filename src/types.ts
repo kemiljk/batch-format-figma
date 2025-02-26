@@ -9,6 +9,10 @@ export interface PluginMessage {
   removeFillLayer?: boolean;
   selectedBlendMode?: BlendModeType;
   selectedScaleMode?: ScaleModeType;
+  preset?: Preset;
+  presetName?: string;
+  presetId?: string;
+  activePreset?: string | null;
 }
 
 // Supported node types for image operations
@@ -61,4 +65,19 @@ export interface UIState {
   selectedBlendMode: BlendModeType;
   removeFillLayer: boolean;
   selectedScaleMode: ScaleModeType;
+  presets?: Preset[];
+  activePreset?: string | null;
+}
+
+// Preset interface for saved settings
+export interface Preset {
+  id: string;
+  name: string;
+  widthCount: string;
+  heightCount: string;
+  checkboxOn: boolean;
+  selectedBlendMode: BlendModeType;
+  removeFillLayer: boolean;
+  selectedScaleMode: ScaleModeType;
+  createdAt: number;
 }
