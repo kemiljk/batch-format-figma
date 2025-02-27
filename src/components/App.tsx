@@ -4,10 +4,9 @@ import * as Select from '@radix-ui/react-select';
 import * as Form from '@radix-ui/react-form';
 import { ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons';
 import { BLEND_MODE_OPTIONS } from '../constants';
-import { BlendModeType, Preset, ScaleModeType, UIState } from '../types';
+import { BlendModeOption, BlendModeType, ScaleModeType, UIState } from '../types';
 import Button from './Button';
 import Switch from './Switch';
-import PresetsPanel from './PresetsPanel';
 
 // Debug mode flag - set to false to disable verbose logging
 const DEBUG_MODE = false;
@@ -29,8 +28,6 @@ const App: React.FC = () => {
     selectedBlendMode: 'NORMAL',
     removeFillLayer: false,
     selectedScaleMode: 'FILL',
-    presets: [],
-    activePreset: null,
   });
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasSelection, setHasSelection] = useState(false);
@@ -53,15 +50,13 @@ const App: React.FC = () => {
       const { type, settings, hasSelection: selectionExists } = event.data.pluginMessage || {};
 
       if (type === 'settings-loaded' && settings) {
-        setState({
-          ...state,
+        setState((prevState) => ({
+          ...prevState,
           ...settings,
           // Convert numbers back to strings for input fields
           widthCount: settings.widthCount ? String(settings.widthCount) : '',
           heightCount: settings.heightCount ? String(settings.heightCount) : '',
-          // Ensure presets array exists
-          presets: settings.presets || [],
-        });
+        }));
         setIsLoaded(true);
 
         // Check for selection after loading settings
@@ -69,25 +64,10 @@ const App: React.FC = () => {
       }
 
       if (type === 'selection-checked') {
+        if (DEBUG_MODE) {
+          console.log('Selection checked event received, hasSelection:', selectionExists);
+        }
         setHasSelection(!!selectionExists);
-      }
-
-      if (type === 'preset-saved') {
-        // Update presets after a new one is saved
-        setState((prevState) => ({
-          ...prevState,
-          presets: settings.presets || prevState.presets || [],
-          activePreset: settings.activePreset || null,
-        }));
-      }
-
-      if (type === 'preset-deleted') {
-        // Update presets after one is deleted
-        setState((prevState) => ({
-          ...prevState,
-          presets: settings.presets || prevState.presets || [],
-          activePreset: settings.activePreset || null,
-        }));
       }
     };
 
@@ -124,7 +104,7 @@ const App: React.FC = () => {
     if (DEBUG_MODE) {
       console.log('Width changed to:', value);
     }
-    setState({ ...state, widthCount: value, activePreset: null });
+    setState({ ...state, widthCount: value });
   };
 
   const handleHeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -132,15 +112,15 @@ const App: React.FC = () => {
     if (DEBUG_MODE) {
       console.log('Height changed to:', value);
     }
-    setState({ ...state, heightCount: value, activePreset: null });
+    setState({ ...state, heightCount: value });
   };
 
   const handleCheckboxChange = (checked: boolean) => {
-    setState({ ...state, checkboxOn: checked, activePreset: null });
+    setState({ ...state, checkboxOn: checked });
   };
 
   const handleRemoveFillLayerChange = (checked: boolean) => {
-    setState({ ...state, removeFillLayer: checked, activePreset: null });
+    setState({ ...state, removeFillLayer: checked });
   };
 
   // Handle when blend mode dropdown is opened/closed
@@ -170,7 +150,6 @@ const App: React.FC = () => {
       setState((prevState) => ({
         ...prevState,
         selectedBlendMode: value as BlendModeType,
-        activePreset: null,
       }));
     } catch (error) {
       console.error('Error updating blend mode:', error);
@@ -193,7 +172,6 @@ const App: React.FC = () => {
       setState((prevState) => ({
         ...prevState,
         selectedScaleMode: value as ScaleModeType,
-        activePreset: null,
       }));
     } catch (error) {
       console.error('Error updating scale mode:', error);
@@ -221,8 +199,6 @@ const App: React.FC = () => {
           removeFillLayer: state.removeFillLayer,
           selectedBlendMode: state.selectedBlendMode,
           selectedScaleMode: state.selectedScaleMode,
-          presets: state.presets,
-          activePreset: state.activePreset,
           ...additionalData,
         },
       },
@@ -240,61 +216,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Handle saving a new preset
-  const handleSavePreset = (name: string) => {
-    const newPreset: Preset = {
-      id: Date.now().toString(),
-      name,
-      widthCount: state.widthCount,
-      heightCount: state.heightCount,
-      checkboxOn: state.checkboxOn,
-      selectedBlendMode: state.selectedBlendMode,
-      removeFillLayer: state.removeFillLayer,
-      selectedScaleMode: state.selectedScaleMode,
-      createdAt: Date.now(),
-    };
-
-    // Update state with new preset
-    const updatedPresets = [...(state.presets || []), newPreset];
-    setState({
-      ...state,
-      presets: updatedPresets,
-      activePreset: newPreset.id,
-    });
-
-    // Send message to plugin to save preset
-    sendMessageToPlugin('save-preset', { preset: newPreset, presetName: name });
-  };
-
-  // Handle selecting a preset
-  const handleSelectPreset = (preset: Preset) => {
-    setState({
-      ...state,
-      widthCount: preset.widthCount,
-      heightCount: preset.heightCount,
-      checkboxOn: preset.checkboxOn,
-      selectedBlendMode: preset.selectedBlendMode,
-      removeFillLayer: preset.removeFillLayer,
-      selectedScaleMode: preset.selectedScaleMode,
-      activePreset: preset.id,
-    });
-  };
-
-  // Handle deleting a preset
-  const handleDeletePreset = (presetId: string) => {
-    const updatedPresets = (state.presets || []).filter((p) => p.id !== presetId);
-    const updatedActivePreset = state.activePreset === presetId ? null : state.activePreset;
-
-    setState({
-      ...state,
-      presets: updatedPresets,
-      activePreset: updatedActivePreset,
-    });
-
-    // Send message to plugin to delete preset
-    sendMessageToPlugin('delete-preset', { presetId });
-  };
-
   const handleApplyClick = () => {
     if (hasSelection) {
       applySettings();
@@ -305,7 +226,7 @@ const App: React.FC = () => {
   };
 
   const resetDimensions = () => {
-    setState({ ...state, widthCount: '', heightCount: '', activePreset: null });
+    setState({ ...state, widthCount: '', heightCount: '' });
   };
 
   // Apply settings to selected nodes
@@ -322,19 +243,28 @@ const App: React.FC = () => {
       return;
     }
 
+    // Check for empty width/height and parse values safely
+    const widthCount = state.widthCount ? parseInt(state.widthCount) : 0;
+    const heightCount = state.heightCount ? parseInt(state.heightCount) : 0;
+
     parent.postMessage(
       {
         pluginMessage: {
           type: 'apply-settings',
           selectedScaleMode: state.selectedScaleMode,
-          widthCount: parseInt(state.widthCount),
-          heightCount: parseInt(state.heightCount),
+          widthCount: widthCount,
+          heightCount: heightCount,
           selectedBlendMode: state.selectedBlendMode,
           removeFillLayer: state.removeFillLayer,
         },
       },
       '*'
     );
+
+    // Request an explicit selection check after applying changes
+    setTimeout(() => {
+      checkForSelection();
+    }, 100);
   };
 
   // Apply dimensions to selected nodes
@@ -351,17 +281,26 @@ const App: React.FC = () => {
       return;
     }
 
+    // Check for empty width/height and parse values safely
+    const widthCount = state.widthCount ? parseInt(state.widthCount) : 0;
+    const heightCount = state.heightCount ? parseInt(state.heightCount) : 0;
+
     parent.postMessage(
       {
         pluginMessage: {
           type: 'update-dimensions',
-          widthCount: parseInt(state.widthCount),
-          heightCount: parseInt(state.heightCount),
+          widthCount: widthCount,
+          heightCount: heightCount,
           checkboxOn: state.checkboxOn,
         },
       },
       '*'
     );
+
+    // Request an explicit selection check after applying changes
+    setTimeout(() => {
+      checkForSelection();
+    }, 100);
   };
 
   const handleDimensionKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -391,12 +330,6 @@ const App: React.FC = () => {
             value='main'
           >
             Main
-          </Tabs.Trigger>
-          <Tabs.Trigger
-            className={`flex-1 px-figma-3 py-figma-2 font-figma-medium text-figma-xs data-[state=active]:text-figma-text data-[state=active]:border-b-2 data-[state=active]:border-figma-border-selected data-[state=inactive]:text-figma-text-secondary text-center`}
-            value='presets'
-          >
-            Presets
           </Tabs.Trigger>
           <Tabs.Trigger
             className={`flex-1 px-figma-3 py-figma-2 font-figma-medium text-figma-xs data-[state=active]:text-figma-text data-[state=active]:border-b-2 data-[state=active]:border-figma-border-selected data-[state=inactive]:text-figma-text-secondary text-center`}
@@ -532,15 +465,22 @@ const App: React.FC = () => {
                   </Select.ScrollUpButton>
                   <Select.Viewport className='p-1 max-h-[180px]'>
                     <Select.Group>
-                      {BLEND_MODE_OPTIONS.map((option) => (
-                        <Select.Item
-                          key={option.value}
-                          value={option.value}
-                          className='text-figma-xs text-figma-text rounded-figma flex items-center h-8 px-figma-3 relative select-none data-[highlighted]:bg-figma-bg-selected data-[highlighted]:text-figma-text outline-none cursor-pointer'
-                        >
-                          <Select.ItemText>{option.label}</Select.ItemText>
-                        </Select.Item>
-                      ))}
+                      {BLEND_MODE_OPTIONS.map((option, index) =>
+                        'type' in option ? (
+                          <div
+                            key={`separator-${index}`}
+                            className='h-[1px] my-1 mx-2 bg-figma-border'
+                          />
+                        ) : (
+                          <Select.Item
+                            key={(option as BlendModeOption).value}
+                            value={(option as BlendModeOption).value}
+                            className='text-figma-xs text-figma-text rounded-figma flex items-center h-8 px-figma-3 relative select-none data-[highlighted]:bg-figma-bg-selected data-[highlighted]:text-figma-text outline-none cursor-pointer'
+                          >
+                            <Select.ItemText>{(option as BlendModeOption).label}</Select.ItemText>
+                          </Select.Item>
+                        )
+                      )}
                     </Select.Group>
                   </Select.Viewport>
                   <Select.ScrollDownButton className='flex items-center justify-center h-6 bg-figma-bg text-figma-text cursor-default'>
@@ -560,21 +500,6 @@ const App: React.FC = () => {
             >
               Apply to Selection
             </Button>
-          </div>
-        </Tabs.Content>
-
-        <Tabs.Content
-          value='presets'
-          className='flex flex-col gap-figma-4'
-        >
-          <div className='p-figma-2'>
-            <PresetsPanel
-              presets={state.presets || []}
-              activePresetId={state.activePreset || null}
-              onSelectPreset={handleSelectPreset}
-              onSavePreset={handleSavePreset}
-              onDeletePreset={handleDeletePreset}
-            />
           </div>
         </Tabs.Content>
 

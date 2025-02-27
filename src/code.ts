@@ -1,4 +1,4 @@
-import { PluginMessage, Preset, ScaleModeType, SupportedNodeType, UIState } from './types';
+import { PluginMessage, ScaleModeType, SupportedNodeType, UIState } from './types';
 import { SUPPORTED_NODE_TYPES } from './constants';
 
 // Debug mode flag - set to false to disable verbose logging
@@ -15,13 +15,10 @@ const DEFAULT_SETTINGS: UIState = {
   selectedBlendMode: 'NORMAL',
   removeFillLayer: false,
   selectedScaleMode: 'FILL',
-  presets: [],
-  activePreset: null,
 };
 
 // Settings key for client storage
 const SETTINGS_KEY = 'batch-format-settings';
-const PRESETS_KEY = 'batch-format-presets';
 
 // Preview functionality has been removed to improve stability
 
@@ -31,11 +28,9 @@ const PRESETS_KEY = 'batch-format-presets';
 async function loadSettings(): Promise<UIState> {
   try {
     const savedSettings = await figma.clientStorage.getAsync(SETTINGS_KEY);
-    const savedPresets = (await figma.clientStorage.getAsync(PRESETS_KEY)) || [];
     return {
       ...DEFAULT_SETTINGS,
       ...savedSettings,
-      presets: savedPresets,
     };
   } catch (error) {
     console.error('Error loading settings:', error);
@@ -63,84 +58,9 @@ async function saveSettings(settings: Partial<UIState>): Promise<void> {
           : currentSettings.heightCount,
     };
 
-    // Save presets separately
-    if (settings.presets) {
-      await figma.clientStorage.setAsync(PRESETS_KEY, settings.presets);
-    }
-
-    // Remove presets from main settings to avoid duplication
-    const { presets, ...settingsWithoutPresets } = updatedSettings;
-    await figma.clientStorage.setAsync(SETTINGS_KEY, settingsWithoutPresets);
+    await figma.clientStorage.setAsync(SETTINGS_KEY, updatedSettings);
   } catch (error) {
     console.error('Error saving settings:', error);
-  }
-}
-
-/**
- * Save a preset
- */
-async function savePreset(preset: Preset): Promise<void> {
-  try {
-    const currentSettings = await loadSettings();
-    const currentPresets = currentSettings.presets || [];
-
-    // Add the new preset
-    const updatedPresets = [...currentPresets, preset];
-
-    // Update settings with new presets
-    await saveSettings({
-      ...currentSettings,
-      presets: updatedPresets,
-      activePreset: preset.id,
-    });
-
-    // Notify UI that preset was saved
-    figma.ui.postMessage({
-      type: 'preset-saved',
-      settings: {
-        ...currentSettings,
-        presets: updatedPresets,
-        activePreset: preset.id,
-      },
-    });
-  } catch (error) {
-    console.error('Error saving preset:', error);
-  }
-}
-
-/**
- * Delete a preset
- */
-async function deletePreset(presetId: string): Promise<void> {
-  try {
-    const currentSettings = await loadSettings();
-    const currentPresets = currentSettings.presets || [];
-
-    // Filter out the preset to delete
-    const updatedPresets = currentPresets.filter((p) => p.id !== presetId);
-
-    // Update active preset if needed
-    const updatedActivePreset =
-      currentSettings.activePreset === presetId ? null : currentSettings.activePreset;
-
-    // Update settings with new presets
-    await saveSettings({
-      ...currentSettings,
-      presets: updatedPresets,
-      activePreset: updatedActivePreset,
-    });
-
-    // Notify UI that preset was deleted
-    figma.ui.postMessage({
-      type: 'preset-deleted',
-      settings: {
-        ...currentSettings,
-        presets: updatedPresets,
-        activePreset: updatedActivePreset,
-      },
-    });
-  } catch (error) {
-    console.error('Error deleting preset:', error);
   }
 }
 
@@ -237,196 +157,223 @@ async function processNode(
   blendMode: BlendMode | null = null,
   shouldRemoveFillLayer: boolean = false
 ): Promise<void> {
-  if (DEBUG_MODE) {
-    console.log(`Processing node: ${node.name} (${node.type})`);
-  }
-
-  // Check if node is a supported type
-  if (!SUPPORTED_NODE_TYPES.includes(node.type as SupportedNodeType)) {
-    if (DEBUG_MODE) {
-      console.log(`Node ${node.name} is not a supported type: ${node.type}`);
+  try {
+    // Validate that the node is still valid and accessible
+    if (!node || !node.id) {
+      if (DEBUG_MODE) {
+        console.log(`Node is no longer valid or accessible`);
+      }
+      return;
     }
-    return;
-  }
 
-  // Handle fills if the node has them
-  if ('fills' in node) {
+    // Check if node is still valid using async method
     try {
-      // Cast node to a type with fills
-      const nodeWithFills = node as GeometryMixin;
-
-      // Check if fills is valid before proceeding
-      if (!nodeWithFills.fills) {
+      const validNode = await figma.getNodeByIdAsync(node.id);
+      if (!validNode) {
         if (DEBUG_MODE) {
-          console.log(`Node ${node.name} has no fills property or it's null`);
+          console.log(`Node is no longer valid or accessible`);
         }
         return;
       }
+    } catch (error) {
+      console.error(`Error checking node validity:`, error);
+      return;
+    }
 
-      // Create a copy of the fills to modify
-      const fills = clone(nodeWithFills.fills) as Paint[];
-      const modifiedFills: Paint[] = [];
+    if (DEBUG_MODE) {
+      console.log(`Processing node: ${node.name} (${node.type})`);
+    }
 
+    // Check if node is a supported type
+    if (!SUPPORTED_NODE_TYPES.includes(node.type as SupportedNodeType)) {
       if (DEBUG_MODE) {
-        console.log(`Node ${node.name} has ${fills.length} fills to process`);
+        console.log(`Node ${node.name} is not a supported type: ${node.type}`);
       }
-
-      // Apply modifications to each fill
-      for (const fill of fills) {
-        // Skip null or undefined fills
-        if (!fill) {
-          modifiedFills.push(fill);
-          continue;
-        }
-
-        let modifiedFill = { ...fill };
-
-        // Apply scale mode if provided and fill is an image or video
-        if (scaleMode && (fill.type === 'IMAGE' || fill.type === 'VIDEO')) {
-          if (DEBUG_MODE) {
-            console.log(`Applying scale mode ${scaleMode} to ${fill.type} fill`);
-          }
-          try {
-            // Create a new ImagePaint object with the updated scaleMode
-            modifiedFill = {
-              ...fill,
-              scaleMode: scaleMode,
-            };
-          } catch (error) {
-            console.error(`Error applying scale mode to ${node.name}:`, error);
-            // Keep the original fill if there's an error
-            modifiedFill = fill;
-          }
-        }
-        // For GIF frames and other special cases, we need to be more careful
-        // Only apply scaleMode to IMAGE or VIDEO fills
-        else if (
-          scaleMode &&
-          (node.type === 'RECTANGLE' || node.type === 'FRAME' || node.type === 'INSTANCE') &&
-          (fill.type === 'IMAGE' || fill.type === 'VIDEO')
-        ) {
-          if (DEBUG_MODE) {
-            console.log(
-              `Attempting to apply scale mode ${scaleMode} to ${node.type} with ${fill.type} fill`
-            );
-          }
-          try {
-            // Only apply scale mode to IMAGE or VIDEO fills
-            modifiedFill = {
-              ...fill,
-              scaleMode: scaleMode,
-            };
-          } catch (error) {
-            console.error(
-              `Error applying scale mode to ${node.name} with fill type ${fill.type}:`,
-              error
-            );
-            // Keep the original fill if there's an error
-            modifiedFill = fill;
-          }
-        }
-
-        // Apply blend mode if provided
-        if (blendMode) {
-          if (DEBUG_MODE) {
-            console.log(`Applying blend mode ${blendMode} to fill`);
-          }
-          try {
-            modifiedFill = {
-              ...modifiedFill,
-              blendMode: blendMode,
-            };
-          } catch (error) {
-            console.error(`Error applying blend mode to ${node.name}:`, error);
-            // If blend mode application fails, keep the previous state
-          }
-        }
-
-        // Add the modified fill to the list
-        modifiedFills.push(modifiedFill);
-      }
-
-      // Apply the modified fills to the node
-      nodeWithFills.fills = modifiedFills;
-
-      // If we should remove the fill layer, do it
-      if (shouldRemoveFillLayer) {
-        await removeFillLayer();
-      }
-    } catch (error) {
-      console.error(`Error processing fills for node ${node.name}:`, error);
-      // Continue with other nodes even if this one fails
+      return;
     }
-  }
 
-  // Apply dimensions if provided
-  if ((widthCount > 0 || heightCount > 0) && 'resize' in node) {
-    try {
-      // Get current dimensions
-      const currentWidth = node.width;
-      const currentHeight = node.height;
-
-      // Calculate new dimensions
-      const newWidth = widthCount > 0 ? widthCount : currentWidth;
-      const newHeight = heightCount > 0 ? heightCount : currentHeight;
-
-      // Apply new dimensions
-      if (newWidth !== currentWidth || newHeight !== currentHeight) {
-        // Cast node to a type that has resize method
-        const resizeableNode = node as SceneNode & {
-          resize: (width: number, height: number) => void;
-        };
-        resizeableNode.resize(newWidth, newHeight);
-      }
-    } catch (error) {
-      console.error(`Error resizing node ${node.name}:`, error);
-    }
-  }
-}
-
-/**
- * Removes the first fill layer from selected nodes
- */
-async function removeFillLayer(): Promise<void> {
-  figma.currentPage.selection.forEach((node) => {
-    try {
-      if ('fills' in node) {
+    // Handle fills if the node has them
+    if ('fills' in node) {
+      try {
+        // Cast node to a type with fills
         const nodeWithFills = node as GeometryMixin;
 
         // Check if fills is valid before proceeding
-        if (
-          !nodeWithFills.fills ||
-          !Array.isArray(nodeWithFills.fills) ||
-          nodeWithFills.fills.length <= 1 // Don't remove if there's only one fill
-        ) {
-          return;
-        }
-
-        const fills = clone(nodeWithFills.fills) as Paint[];
-
-        // Only remove the first fill if it's not an image or video
-        // This prevents removing important image fills
-        const firstFill = fills[0];
-        if (firstFill && (firstFill.type === 'IMAGE' || firstFill.type === 'VIDEO')) {
-          // Don't remove image or video fills
+        if (!nodeWithFills.fills) {
           if (DEBUG_MODE) {
-            console.log(`Not removing first fill from ${node.name} because it's an image or video`);
+            console.log(`Node ${node.name} has no fills property or it's null`);
           }
           return;
         }
 
-        // Remove the first fill (default grey fill)
-        fills.splice(0, 1);
-        nodeWithFills.fills = fills;
+        // Create a copy of the fills to modify
+        const fills = clone(nodeWithFills.fills) as Paint[];
+        let modifiedFills: Paint[] = [];
 
         if (DEBUG_MODE) {
-          console.log(`Removed first fill from ${node.name}`);
+          console.log(`Node ${node.name} has ${fills.length} fills to process`);
         }
+
+        // Handle "remove default grey fill layer" option directly here
+        if (shouldRemoveFillLayer && fills.length > 1) {
+          // Only remove the first fill if it's not an image or video
+          const firstFill = fills[0];
+
+          if (firstFill && (firstFill.type === 'IMAGE' || firstFill.type === 'VIDEO')) {
+            // Don't remove image or video fills - keep all fills
+            modifiedFills = [...fills];
+
+            if (DEBUG_MODE) {
+              console.log(
+                `Not removing first fill from ${node.name} because it's an image or video`
+              );
+            }
+          } else {
+            // Remove the first fill (default grey fill)
+            modifiedFills = fills.slice(1);
+
+            if (DEBUG_MODE) {
+              console.log(`Removed first fill from ${node.name}`);
+            }
+          }
+        } else {
+          // Keep all fills if we're not removing any
+          modifiedFills = [...fills];
+        }
+
+        // Apply modifications to each fill
+        const finalFills: Paint[] = [];
+        for (const fill of modifiedFills) {
+          // Skip null or undefined fills
+          if (!fill) {
+            finalFills.push(fill);
+            continue;
+          }
+
+          let modifiedFill = { ...fill };
+
+          // Apply scale mode if provided and fill is an image or video
+          if (scaleMode && (fill.type === 'IMAGE' || fill.type === 'VIDEO')) {
+            if (DEBUG_MODE) {
+              console.log(`Applying scale mode ${scaleMode} to ${fill.type} fill`);
+            }
+            try {
+              // Create a new ImagePaint object with the updated scaleMode
+              modifiedFill = {
+                ...fill,
+                scaleMode: scaleMode,
+              };
+            } catch (error) {
+              console.error(`Error applying scale mode to ${node.name}:`, error);
+              // Keep the original fill if there's an error
+              modifiedFill = fill;
+            }
+          }
+          // For GIF frames and other special cases, we need to be more careful
+          // Only apply scaleMode to IMAGE or VIDEO fills
+          else if (
+            scaleMode &&
+            (node.type === 'RECTANGLE' || node.type === 'FRAME' || node.type === 'INSTANCE') &&
+            (fill.type === 'IMAGE' || fill.type === 'VIDEO')
+          ) {
+            if (DEBUG_MODE) {
+              console.log(
+                `Attempting to apply scale mode ${scaleMode} to ${node.type} with ${fill.type} fill`
+              );
+            }
+            try {
+              // Only apply scale mode to IMAGE or VIDEO fills
+              modifiedFill = {
+                ...fill,
+                scaleMode: scaleMode,
+              };
+            } catch (error) {
+              console.error(
+                `Error applying scale mode to ${node.name} with fill type ${fill.type}:`,
+                error
+              );
+              // Keep the original fill if there's an error
+              modifiedFill = fill;
+            }
+          }
+
+          // Apply blend mode if provided
+          if (blendMode) {
+            if (DEBUG_MODE) {
+              console.log(`Applying blend mode ${blendMode} to fill`);
+            }
+            try {
+              modifiedFill = {
+                ...modifiedFill,
+                blendMode: blendMode,
+              };
+            } catch (error) {
+              console.error(`Error applying blend mode to ${node.name}:`, error);
+              // If blend mode application fails, keep the previous state
+            }
+          }
+
+          // Add the modified fill to the list
+          finalFills.push(modifiedFill);
+        }
+
+        // Apply the modified fills to the node - check if node is still valid first
+        try {
+          const validNode = await figma.getNodeByIdAsync(node.id);
+          if (validNode) {
+            nodeWithFills.fills = finalFills;
+          } else {
+            console.error(`Node ${node.name} is no longer valid when applying fills`);
+            return;
+          }
+        } catch (error) {
+          console.error(`Error checking node validity when applying fills:`, error);
+          return;
+        }
+      } catch (error) {
+        console.error(`Error processing fills for node ${node.name}:`, error);
+        // Continue with other nodes even if this one fails
       }
-    } catch (error) {
-      console.error(`Error removing fill layer from node ${node.name}:`, error);
     }
-  });
+
+    // Apply dimensions if provided
+    if ((widthCount > 0 || heightCount > 0) && 'resize' in node) {
+      try {
+        // Check if node is still valid
+        try {
+          const validNode = await figma.getNodeByIdAsync(node.id);
+          if (!validNode) {
+            console.error(`Node ${node.name} is no longer valid when applying dimensions`);
+            return;
+          }
+        } catch (error) {
+          console.error(`Error checking node validity when applying dimensions:`, error);
+          return;
+        }
+
+        // Get current dimensions
+        const currentWidth = node.width;
+        const currentHeight = node.height;
+
+        // Calculate new dimensions
+        const newWidth = widthCount > 0 ? widthCount : currentWidth;
+        const newHeight = heightCount > 0 ? heightCount : currentHeight;
+
+        // Apply new dimensions
+        if (newWidth !== currentWidth || newHeight !== currentHeight) {
+          // Cast node to a type that has resize method
+          const resizeableNode = node as SceneNode & {
+            resize: (width: number, height: number) => void;
+          };
+          resizeableNode.resize(newWidth, newHeight);
+        }
+      } catch (error) {
+        console.error(`Error resizing node ${node.name}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error(`Unexpected error processing node:`, error);
+  }
 }
 
 /**
@@ -442,9 +389,35 @@ async function processSelectedNodes(
   let processedCount = 0;
 
   try {
-    // Process each selected node
-    for (const node of figma.currentPage.selection) {
+    // Get a snapshot of the current selection to avoid issues if selection changes during processing
+    const selectedNodes = [...figma.currentPage.selection];
+    // Store node IDs for reliable reselection
+    const selectedNodeIds = selectedNodes.map((node) => node.id);
+
+    if (selectedNodes.length === 0) {
+      return 0;
+    }
+
+    // Process each selected node without modifying the selection
+    for (const node of selectedNodes) {
       try {
+        // Verify node is still valid before processing
+        if (!node || !node.id) {
+          console.warn(`Skipping node that is no longer valid`);
+          continue;
+        }
+
+        try {
+          const validNode = await figma.getNodeByIdAsync(node.id);
+          if (!validNode) {
+            console.warn(`Skipping node that is no longer valid`);
+            continue;
+          }
+        } catch (error) {
+          console.error(`Error checking node validity:`, error);
+          continue;
+        }
+
         if (hasImageFills(node)) {
           await processNode(
             node,
@@ -461,6 +434,9 @@ async function processSelectedNodes(
         // Continue with other nodes even if this one fails
       }
     }
+
+    // Return the processed count and node IDs for reselection
+    return processedCount;
   } catch (error) {
     console.error('Error processing selected nodes:', error);
   }
@@ -575,22 +551,7 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
       selectedBlendMode: msg.selectedBlendMode,
       removeFillLayer: msg.removeFillLayer,
       selectedScaleMode: msg.selectedScaleMode,
-      activePreset: msg.activePreset,
     });
-  }
-
-  // Save preset
-  else if (msg.type === 'save-preset') {
-    if (msg.preset) {
-      await savePreset(msg.preset);
-    }
-  }
-
-  // Delete preset
-  else if (msg.type === 'delete-preset') {
-    if (msg.presetId) {
-      await deletePreset(msg.presetId);
-    }
   }
 
   // Apply settings to selection
@@ -603,30 +564,53 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
       removeFillLayer: msg.removeFillLayer,
     });
 
-    // Apply the settings to selected nodes
-    const count = await processSelectedNodes(
-      msg.selectedScaleMode,
-      msg.widthCount,
-      msg.heightCount,
-      msg.selectedBlendMode,
-      msg.removeFillLayer
-    );
+    try {
+      // Store the current selection as node IDs (more reliable than node references)
+      const selectedNodeIds = figma.currentPage.selection.map((node) => node.id);
 
-    if (count > 0) {
-      figma.notify(`Applied changes to ${count} node${count !== 1 ? 's' : ''}`);
-    } else {
-      figma.notify('No valid nodes found in selection');
+      // Apply the settings to selected nodes - process in place without clearing selection
+      const count = await processSelectedNodes(
+        msg.selectedScaleMode,
+        msg.widthCount,
+        msg.heightCount,
+        msg.selectedBlendMode,
+        msg.removeFillLayer
+      );
+
+      if (count > 0) {
+        // More reliable approach to ensure UI is updated without clearing selection
+        // Just trigger a selection change notification to update UI
+        const selectionCheckResult = checkSelection();
+        figma.ui.postMessage({ type: 'selection-checked', hasSelection: selectionCheckResult });
+
+        figma.notify(`Applied changes to ${count} node${count !== 1 ? 's' : ''}`);
+      } else {
+        figma.notify('No valid nodes found in selection');
+      }
+    } catch (error) {
+      console.error('Error applying settings:', error);
+      figma.notify('An error occurred while applying settings', { error: true });
     }
   }
 
   // Update dimensions
   else if (msg.type === 'update-dimensions') {
-    const count = await applyDimensions(msg.widthCount, msg.heightCount, msg.checkboxOn);
+    try {
+      // Apply dimensions without clearing the selection
+      const count = await applyDimensions(msg.widthCount, msg.heightCount, msg.checkboxOn);
 
-    if (count > 0) {
-      figma.notify(`Applied dimensions to ${count} node${count !== 1 ? 's' : ''}`);
-    } else {
-      figma.notify('No valid nodes found in selection');
+      if (count > 0) {
+        // Just notify UI of selection state after processing
+        const selectionCheckResult = checkSelection();
+        figma.ui.postMessage({ type: 'selection-checked', hasSelection: selectionCheckResult });
+
+        figma.notify(`Applied dimensions to ${count} node${count !== 1 ? 's' : ''}`);
+      } else {
+        figma.notify('No valid nodes found in selection');
+      }
+    } catch (error) {
+      console.error('Error updating dimensions:', error);
+      figma.notify('An error occurred while updating dimensions', { error: true });
     }
   }
 
@@ -663,50 +647,99 @@ async function applyDimensions(
 ): Promise<number> {
   let processedCount = 0;
 
-  // Process each selected node
-  for (const node of figma.currentPage.selection) {
-    if (!SUPPORTED_NODE_TYPES.includes(node.type as SupportedNodeType)) {
-      continue;
+  try {
+    // Get a snapshot of the current selection to avoid issues if selection changes during processing
+    const selectedNodes = [...figma.currentPage.selection];
+
+    if (selectedNodes.length === 0) {
+      return 0;
     }
 
-    // Skip nodes without width or height
-    if (!('width' in node) || !('height' in node)) {
-      continue;
-    }
+    // Process each selected node without clearing selection
+    for (const node of selectedNodes) {
+      try {
+        // Verify node is still valid before processing
+        if (!node || !node.id) {
+          console.warn(`Skipping node that is no longer valid`);
+          continue;
+        }
 
-    // Get current dimensions
-    const currentWidth = node.width;
-    const currentHeight = node.height;
+        try {
+          const validNode = await figma.getNodeByIdAsync(node.id);
+          if (!validNode) {
+            console.warn(`Skipping node that is no longer valid`);
+            continue;
+          }
+        } catch (error) {
+          console.error(`Error checking node validity:`, error);
+          continue;
+        }
 
-    // Calculate new dimensions
-    let newWidth = widthCount > 0 ? widthCount : currentWidth;
-    let newHeight = heightCount > 0 ? heightCount : currentHeight;
+        if (!SUPPORTED_NODE_TYPES.includes(node.type as SupportedNodeType)) {
+          continue;
+        }
 
-    // Maintain aspect ratio if requested
-    if (maintainAspectRatio) {
-      const aspectRatio = currentWidth / currentHeight;
+        // Skip nodes without width or height
+        if (!('width' in node) || !('height' in node)) {
+          continue;
+        }
 
-      if (widthCount > 0 && heightCount === 0) {
-        // Width provided, calculate height
-        newHeight = newWidth / aspectRatio;
-      } else if (heightCount > 0 && widthCount === 0) {
-        // Height provided, calculate width
-        newWidth = newHeight * aspectRatio;
-      } else if (widthCount > 0 && heightCount > 0) {
-        // Both provided, use width as reference
-        newHeight = newWidth / aspectRatio;
+        // Get current dimensions
+        const currentWidth = node.width;
+        const currentHeight = node.height;
+
+        // Calculate new dimensions
+        let newWidth = widthCount > 0 ? widthCount : currentWidth;
+        let newHeight = heightCount > 0 ? heightCount : currentHeight;
+
+        // Maintain aspect ratio if requested
+        if (maintainAspectRatio) {
+          const aspectRatio = currentWidth / currentHeight;
+
+          if (widthCount > 0 && heightCount === 0) {
+            // Width provided, calculate height
+            newHeight = newWidth / aspectRatio;
+          } else if (heightCount > 0 && widthCount === 0) {
+            // Height provided, calculate width
+            newWidth = newHeight * aspectRatio;
+          } else if (widthCount > 0 && heightCount > 0) {
+            // Both provided, use width as reference
+            newHeight = newWidth / aspectRatio;
+          }
+        }
+
+        // Apply new dimensions
+        if (newWidth !== currentWidth || newHeight !== currentHeight) {
+          // Check if node is still valid before resizing
+          try {
+            const validNode = await figma.getNodeByIdAsync(node.id);
+            if (!validNode) {
+              console.warn(`Node is no longer valid when applying dimensions`);
+              continue;
+            }
+
+            // Cast node to a type that has resize method
+            const resizeableNode = node as SceneNode & {
+              resize: (width: number, height: number) => void;
+            };
+            resizeableNode.resize(newWidth, newHeight);
+            processedCount++;
+          } catch (error) {
+            console.error(`Error checking node validity when resizing:`, error);
+            continue;
+          }
+        }
+      } catch (error) {
+        console.error(`Error applying dimensions to node:`, error);
+        // Continue with other nodes even if this one fails
       }
     }
 
-    // Apply new dimensions
-    if (newWidth !== currentWidth || newHeight !== currentHeight) {
-      // Cast node to a type that has resize method
-      const resizeableNode = node as SceneNode & {
-        resize: (width: number, height: number) => void;
-      };
-      resizeableNode.resize(newWidth, newHeight);
-      processedCount++;
-    }
+    // Notify UI of selection state after processing
+    const selectionCheckResult = checkSelection();
+    figma.ui.postMessage({ type: 'selection-checked', hasSelection: selectionCheckResult });
+  } catch (error) {
+    console.error('Error applying dimensions to nodes:', error);
   }
 
   return processedCount;
